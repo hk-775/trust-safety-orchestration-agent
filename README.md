@@ -5,9 +5,9 @@ violations with automated enforcement and human review.
 
 > [!IMPORTANT]
 > This is reference/sample code, not a production-ready moderation system.
-> Do not process real user data with it. Direct `prod` deployment is disabled
-> until the security gaps in [the deployment runbook](docs/deployment.md#production-release-gaps)
-> are resolved.
+> Do not process real user data with it until your organization completes the
+> security, privacy, legal, and operational review in
+> [the deployment runbook](docs/deployment.md#production-deployment-checklist).
 
 ## Architecture
 
@@ -31,7 +31,7 @@ Kinesis, SQS, SNS, EventBridge, CloudFront, and optional ElastiCache Redis.
 - AWS CLI v2 with active credentials
 - AWS SAM CLI
 - `uv`
-- Node.js `20.19+`, `22.12+`, or a newer major release; Node 22 is recommended
+- Node.js `22.13+` or `24+`; Node 22 is used by CI
 - npm
 
 Install dependencies and validate both build artifacts:
@@ -108,12 +108,11 @@ The deployment writes `frontend/.env.local` from CloudFormation outputs, so
 
 ### Production Rehearsal
 
-The public deployment path intentionally supports `dev`, `staging`, and
-`prodtest`, but not `prod`. The template also requires
-`AcknowledgeIncompleteProduction=true` for a direct production deployment.
-That acknowledgement is not a substitute for implementing the documented
-authentication, authorization, logging, encryption, schema-validation, and
-cost controls.
+The public deployment path supports all four profiles. Both `prodtest` and
+`prod` require `CONFIRM_PRODUCTION_DEPLOY=true`; `prod` additionally requires
+real integration URLs, secret-backed integration authentication, Redis, and an
+explicit Bedrock model. That confirmation is not a substitute for the
+organization-specific production review.
 
 For a deletion-safe production-topology rehearsal, deploy `prodtest`. It uses
 the production Redis, dual-NAT, logging, and stream sizing while keeping
@@ -148,12 +147,20 @@ WebSocket endpoint for real-time updates.
 ## GitHub Deployment
 
 `.github/workflows/deploy.yml` provides a manual OIDC-based deployment.
-Create protected GitHub environments named `dev`, `staging`, and `prodtest`,
+Create protected GitHub environments named `dev`, `staging`, `prodtest`, and
+`prod`,
 then configure:
 
 - Environment variable `AWS_DEPLOY_ROLE_ARN`
 - Environment variable `AWS_ACCOUNT_ID`
-- Environment variable `BEDROCK_MODEL_ID` for `prodtest`
+- Environment variable `BEDROCK_MODEL_ID` for `prodtest` and `prod`
+- Production environment variables `PLATFORM_USER_API_URL`,
+  `PLATFORM_MESSAGING_API_URL`, and `PARTNER_INTEL_API_URL`
+- Production environment variables `PLATFORM_AUTH_MODE`,
+  `PLATFORM_AUTH_SECRET_ARN`, `PARTNER_INTEL_AUTH_MODE`, and
+  `PARTNER_INTEL_AUTH_SECRET_ARN`
+- Optional production variables `PLATFORM_AUTH_KMS_KEY_ARN` and
+  `PARTNER_INTEL_AUTH_KMS_KEY_ARN` when the secrets use customer-managed keys
 - Optional environment variable `ALLOWED_CORS_ORIGIN` for direct browser access
 - Optional non-production secret `DEMO_ADMIN_PASSWORD`
 
@@ -162,7 +169,8 @@ The IAM role must trust GitHub's OIDC provider only when the token audience is
 and the selected environment, for example
 `repo:hk-775/trust-safety-orchestration-agent:environment:prodtest`. Do not use
 an organization-wide or repository-wide wildcard subject. Restrict each
-environment to the `main` branch, add required reviewers to `prodtest`, and
+environment to the `main` branch, add required reviewers to `prodtest` and
+`prod`, and
 grant the deployment role only the permissions required by the reviewed SAM
 change set. The workflow refuses deployment runs from other branches.
 
@@ -218,13 +226,16 @@ SUPPORT.md                    Community support expectations
 
 ## Security
 
-- REST API routes use Cognito authorization except explicitly public auth,
-  health, and metrics routes. Reassess those public telemetry routes before
-  production use.
-- The browser sample stores only the Cognito ID token in `sessionStorage`; it
-  does not return or persist Cognito access or refresh tokens.
-- WebSocket routes are currently unauthenticated; production must add an
-  authorizer before release.
+- REST API routes use Cognito authorization except login and health. Production
+  health responses expose only aggregate status.
+- The browser keeps the Cognito ID token only in memory and requires sign-in
+  again after a full page reload.
+- WebSocket `$connect` exchanges the Cognito session for a single-use,
+  60-second DynamoDB ticket. Established `$disconnect` and `$default` events
+  inherit that authenticated connection.
+- External integrations support API-key or bearer authentication with
+  credentials resolved from exact Secrets Manager ARNs and refreshed every
+  five minutes.
 - External integration URLs are required to use HTTPS and path/query values
   are encoded before requests are sent.
 - CloudFront adds CSP, HSTS, clickjacking, MIME-sniffing, referrer, and browser

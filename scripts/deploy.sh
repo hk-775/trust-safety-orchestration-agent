@@ -55,12 +55,6 @@ case "$ENVIRONMENT" in
         ;;
 esac
 
-if [[ "$ENVIRONMENT" == "prod" ]]; then
-    echo "ERROR: Direct production deployment is disabled in this sample." >&2
-    echo "Use prodtest for topology validation and complete the production release gaps first." >&2
-    exit 1
-fi
-
 for command_name in aws sam curl; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "ERROR: Required command not found: ${command_name}" >&2
@@ -78,10 +72,10 @@ if [[ "$DEPLOY_FRONTEND" == "true" ]]; then
 
     if ! node -e '
         const [major, minor] = process.versions.node.split(".").map(Number);
-        const supported = major === 20 ? minor >= 19 : major === 22 ? minor >= 12 : major > 22;
+        const supported = major === 22 ? minor >= 13 : major >= 24;
         process.exit(supported ? 0 : 1);
     '; then
-        echo "ERROR: Frontend deployment requires Node.js 20.19+, 22.12+, or a newer major release." >&2
+        echo "ERROR: Frontend deployment requires Node.js 22.13+ or 24+." >&2
         exit 1
     fi
 fi
@@ -96,7 +90,7 @@ if [[ "$SEED_DEMO_DATA" == "true" && -z "${DEMO_ADMIN_PASSWORD:-}" ]]; then
     exit 1
 fi
 
-if [[ "$ENVIRONMENT" == "prodtest" ]]; then
+if [[ "$ENVIRONMENT" == "prodtest" || "$ENVIRONMENT" == "prod" ]]; then
     if [[ "$CONFIRM_PRODUCTION_DEPLOY" != "true" ]]; then
         echo "ERROR: Set CONFIRM_PRODUCTION_DEPLOY=true for a production-like deployment." >&2
         exit 1
@@ -114,15 +108,110 @@ fi
 PLATFORM_USER_API_URL="${PLATFORM_USER_API_URL:-}"
 PLATFORM_MESSAGING_API_URL="${PLATFORM_MESSAGING_API_URL:-}"
 PARTNER_INTEL_API_URL="${PARTNER_INTEL_API_URL:-}"
+PLATFORM_AUTH_MODE="${PLATFORM_AUTH_MODE:-none}"
+PLATFORM_AUTH_SECRET_ARN="${PLATFORM_AUTH_SECRET_ARN:-}"
+PLATFORM_AUTH_KMS_KEY_ARN="${PLATFORM_AUTH_KMS_KEY_ARN:-}"
+PARTNER_INTEL_AUTH_MODE="${PARTNER_INTEL_AUTH_MODE:-none}"
+PARTNER_INTEL_AUTH_SECRET_ARN="${PARTNER_INTEL_AUTH_SECRET_ARN:-}"
+PARTNER_INTEL_AUTH_KMS_KEY_ARN="${PARTNER_INTEL_AUTH_KMS_KEY_ARN:-}"
 BEDROCK_MODEL_ID="${BEDROCK_MODEL_ID:-}"
 ALLOWED_CORS_ORIGIN="${ALLOWED_CORS_ORIGIN:-http://localhost:3000}"
 
-if [[ "$ENVIRONMENT" == "prodtest" ]]; then
+if [[ "$ENVIRONMENT" == "prodtest" || "$ENVIRONMENT" == "prod" ]]; then
     if [[ -z "$BEDROCK_MODEL_ID" ]]; then
         echo "ERROR: BEDROCK_MODEL_ID must be set for a production-like deployment." >&2
         exit 1
     fi
 fi
+
+if [[ "$ENVIRONMENT" == "prod" ]]; then
+    for required_name in \
+        PLATFORM_USER_API_URL \
+        PLATFORM_MESSAGING_API_URL \
+        PARTNER_INTEL_API_URL \
+        PLATFORM_AUTH_SECRET_ARN \
+        PARTNER_INTEL_AUTH_SECRET_ARN; do
+        if [[ -z "${!required_name}" ]]; then
+            echo "ERROR: ${required_name} is required for production." >&2
+            exit 1
+        fi
+    done
+
+    if [[ "$PLATFORM_AUTH_MODE" == "none" ]]; then
+        echo "ERROR: PLATFORM_AUTH_MODE must be api-key or bearer for production." >&2
+        exit 1
+    fi
+    if [[ "$PARTNER_INTEL_AUTH_MODE" == "none" ]]; then
+        echo "ERROR: PARTNER_INTEL_AUTH_MODE must be api-key or bearer for production." >&2
+        exit 1
+    fi
+
+    validate_production_url() {
+        local name="$1"
+        local value="$2"
+        local authority host
+
+        if [[ "$value" != https://* ]]; then
+            echo "ERROR: ${name} must use HTTPS." >&2
+            exit 1
+        fi
+
+        authority="${value#https://}"
+        authority="${authority%%/*}"
+        host="${authority%%:*}"
+        host="$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]')"
+
+        case "$host" in
+            localhost|*.localhost|127.*|::1|example.com|*.example.com|example.org|*.example.org|example.net|*.example.net|*.test|*.invalid)
+                echo "ERROR: ${name} must use a real production hostname." >&2
+                exit 1
+                ;;
+        esac
+    }
+
+    validate_production_url PLATFORM_USER_API_URL "$PLATFORM_USER_API_URL"
+    validate_production_url PLATFORM_MESSAGING_API_URL "$PLATFORM_MESSAGING_API_URL"
+    validate_production_url PARTNER_INTEL_API_URL "$PARTNER_INTEL_API_URL"
+fi
+
+validate_auth_configuration() {
+    local label="$1"
+    local mode="$2"
+    local secret_arn="$3"
+    local kms_key_arn="$4"
+
+    case "$mode" in
+        none|api-key|bearer) ;;
+        *)
+            echo "ERROR: ${label}_AUTH_MODE must be none, api-key, or bearer." >&2
+            exit 1
+            ;;
+    esac
+
+    if [[ "$mode" == "none" && -n "$secret_arn" ]]; then
+        echo "ERROR: ${label}_AUTH_SECRET_ARN requires an authenticated mode." >&2
+        exit 1
+    fi
+    if [[ "$mode" != "none" && -z "$secret_arn" ]]; then
+        echo "ERROR: ${label}_AUTH_SECRET_ARN is required for ${mode} auth." >&2
+        exit 1
+    fi
+    if [[ -n "$kms_key_arn" && -z "$secret_arn" ]]; then
+        echo "ERROR: ${label}_AUTH_KMS_KEY_ARN requires a secret ARN." >&2
+        exit 1
+    fi
+}
+
+validate_auth_configuration \
+    PLATFORM \
+    "$PLATFORM_AUTH_MODE" \
+    "$PLATFORM_AUTH_SECRET_ARN" \
+    "$PLATFORM_AUTH_KMS_KEY_ARN"
+validate_auth_configuration \
+    PARTNER_INTEL \
+    "$PARTNER_INTEL_AUTH_MODE" \
+    "$PARTNER_INTEL_AUTH_SECRET_ARN" \
+    "$PARTNER_INTEL_AUTH_KMS_KEY_ARN"
 
 echo "Deploying stack"
 echo "  Environment: ${ENVIRONMENT}"
@@ -137,6 +226,13 @@ parameter_overrides=(
     "Environment=${ENVIRONMENT}"
     "UseRedis=${USE_REDIS}"
     "AllowedCorsOrigin=${ALLOWED_CORS_ORIGIN}"
+    "AcknowledgeIncompleteProduction=${CONFIRM_PRODUCTION_DEPLOY}"
+    "PlatformAuthMode=${PLATFORM_AUTH_MODE}"
+    "PlatformAuthSecretArn=${PLATFORM_AUTH_SECRET_ARN}"
+    "PlatformAuthKmsKeyArn=${PLATFORM_AUTH_KMS_KEY_ARN}"
+    "PartnerIntelAuthMode=${PARTNER_INTEL_AUTH_MODE}"
+    "PartnerIntelAuthSecretArn=${PARTNER_INTEL_AUTH_SECRET_ARN}"
+    "PartnerIntelAuthKmsKeyArn=${PARTNER_INTEL_AUTH_KMS_KEY_ARN}"
 )
 
 if [[ -n "$PLATFORM_USER_API_URL" ]]; then

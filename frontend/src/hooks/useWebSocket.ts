@@ -12,7 +12,7 @@ export function useWebSocket() {
       updateFromWebSocket(data as RealtimeMetrics)
     })
     clientRef.current = client
-    client.connect()
+    void client.connect()
 
     return () => {
       client.disconnect()

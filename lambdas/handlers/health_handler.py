@@ -64,8 +64,9 @@ def lambda_handler(event, context):
         result = {
             "status": "healthy" if overall_healthy else "degraded",
             "timestamp": time.time(),
-            "components": components,
         }
+        if os.environ.get("ENVIRONMENT") != "prod":
+            result["components"] = components
 
         status_code = 200 if overall_healthy else 503
         return _response(status_code, result)

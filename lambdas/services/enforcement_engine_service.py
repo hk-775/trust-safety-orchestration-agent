@@ -12,6 +12,7 @@ from repositories import (
 )
 from services import notification_service
 from services.http_client import build_https_url
+from services.integration_auth import get_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def _call_platform_enforcement(user_id: str, action: str, params: dict | None = 
             data=payload,
             headers={
                 "Content-Type": "application/json",
-                "X-Api-Key": os.environ.get("PLATFORM_API_KEY", ""),
+                **get_auth_headers("platform"),
             },
         )
         # build_https_url rejects non-HTTPS schemes before this request.

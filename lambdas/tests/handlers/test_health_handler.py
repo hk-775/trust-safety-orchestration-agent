@@ -83,5 +83,25 @@ def test_health_does_not_expose_dynamodb_error_details(
     body = json.loads(result["body"])
     assert body["components"]["dynamodb"]["status"] == "unhealthy"
     assert "error" not in body["components"]["dynamodb"]
+
+
+@patch("handlers.health_handler.rate_limiter_service")
+@patch("handlers.health_handler.case_repository")
+def test_production_health_omits_component_details(
+    mock_case_repository,
+    mock_rate_limiter,
+    monkeypatch,
+):
+    monkeypatch.setenv("ENVIRONMENT", "prod")
+    monkeypatch.setenv("USE_REDIS", "false")
+    mock_case_repository.get_case.return_value = None
+
+    result = lambda_handler({}, None)
+
+    assert result["statusCode"] == 200
+    body = json.loads(result["body"])
+    assert body["status"] == "healthy"
+    assert "components" not in body
+    mock_rate_limiter._get_redis.assert_not_called()
     assert "private-account-detail" not in result["body"]
     mock_rate_limiter._get_redis.assert_not_called()

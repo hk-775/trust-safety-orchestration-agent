@@ -5,6 +5,7 @@ import os
 import boto3
 
 from handlers.http_response import response_headers
+from repositories import websocket_ticket_repository
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,9 @@ CLIENT_ID = os.environ.get("CLIENT_ID", "")
 
 def lambda_handler(event, context):
     try:
+        if _is_websocket_ticket_request(event):
+            return _create_websocket_ticket(event)
+
         body = json.loads(event.get("body") or "{}")
         email = body.get("email", "").strip()
         password = body.get("password", "")
@@ -54,6 +58,28 @@ def lambda_handler(event, context):
     except Exception:
         logger.exception("Auth handler error")
         return _response(500, {"error": "Internal server error"})
+
+
+def _is_websocket_ticket_request(event) -> bool:
+    path = event.get("resource") or event.get("path") or ""
+    return path.endswith("/auth/websocket-ticket")
+
+
+def _create_websocket_ticket(event):
+    claims = (
+        event.get("requestContext", {})
+        .get("authorizer", {})
+        .get("claims", {})
+    )
+    user_id = claims.get("sub")
+    if not user_id:
+        return _response(401, {"error": "Authentication required"})
+
+    ticket = websocket_ticket_repository.create_ticket(
+        user_id=user_id,
+        role=claims.get("custom:role", "operator"),
+    )
+    return _response(200, ticket)
 
 
 def _response(status_code, body):

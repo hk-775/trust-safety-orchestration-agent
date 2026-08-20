@@ -9,7 +9,7 @@ SEED_DEMO_DATA ?= false
 CONFIRM_PRODUCTION_DEPLOY ?= false
 ALLOW_PRODUCTION_DESTROY ?= false
 
-.PHONY: setup audit build check-node frontend-build deploy deploy-backend deploy-lite deploy-prodtest deploy-quick dev clean test seed simulate help quickstart destroy lint
+.PHONY: setup audit build check-node frontend-build deploy deploy-backend deploy-lite deploy-prodtest deploy-prod deploy-quick dev clean test seed simulate help quickstart destroy lint
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -24,8 +24,8 @@ setup: ## Install all dependencies (backend + frontend)
 
 check-node:
 	@command -v node >/dev/null 2>&1 || { echo "ERROR: Node.js is required." >&2; exit 1; }
-	@node -e 'const [major, minor] = process.versions.node.split(".").map(Number); const supported = major === 20 ? minor >= 19 : major === 22 ? minor >= 12 : major > 22; process.exit(supported ? 0 : 1)' \
-		|| { echo "ERROR: Node.js 20.19+, 22.12+, or a newer major release is required." >&2; exit 1; }
+	@node -e 'const [major, minor] = process.versions.node.split(".").map(Number); const supported = major === 22 ? minor >= 13 : major >= 24; process.exit(supported ? 0 : 1)' \
+		|| { echo "ERROR: Node.js 22.13+ or 24+ is required." >&2; exit 1; }
 
 build: ## Build the SAM application
 	sam build --parallel
@@ -53,6 +53,9 @@ deploy-lite: ## Deploy a lightweight dev stack without VPC/Redis
 
 deploy-prodtest: ## Deploy a deletion-safe production-topology rehearsal
 	$(MAKE) deploy ENVIRONMENT=prodtest STACK_NAME=trust-safety-orch-prodtest USE_REDIS=true
+
+deploy-prod: ## Deploy production after satisfying all guarded inputs
+	$(MAKE) deploy ENVIRONMENT=prod STACK_NAME=trust-safety-orch-prod USE_REDIS=true
 
 deploy-quick: deploy-lite ## Backward-compatible alias for the dev deployment
 

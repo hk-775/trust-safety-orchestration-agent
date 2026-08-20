@@ -56,7 +56,7 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
-    Description: Must be explicitly enabled only after the documented production gaps are resolved
+    Description: Explicit confirmation that the production deployment checklist was completed
 
   PlatformUserApiUrl:
     Type: String
@@ -70,6 +70,24 @@ Parameters:
     AllowedPattern: ^https://.+
     ConstraintDescription: Must be an HTTPS URL
 
+  PlatformAuthMode:
+    Type: String
+    Default: none
+    AllowedValues: [none, api-key, bearer]
+    Description: Authentication scheme used by the platform user and messaging APIs
+
+  PlatformAuthSecretArn:
+    Type: String
+    Default: ""
+    AllowedPattern: ^$|^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$
+    ConstraintDescription: Must be an AWS Secrets Manager secret ARN or empty
+
+  PlatformAuthKmsKeyArn:
+    Type: String
+    Default: ""
+    AllowedPattern: ^$|^arn:[^:]+:kms:[^:]+:[0-9]{12}:key/.+$
+    ConstraintDescription: Must be the customer-managed KMS key ARN for the platform secret or empty
+
   BedrockModelId:
     Type: String
     Default: ""
@@ -80,6 +98,24 @@ Parameters:
     Default: https://intel-api.partner-network.internal
     AllowedPattern: ^https://.+
     ConstraintDescription: Must be an HTTPS URL
+
+  PartnerIntelAuthMode:
+    Type: String
+    Default: none
+    AllowedValues: [none, api-key, bearer]
+    Description: Authentication scheme used by the partner intelligence API
+
+  PartnerIntelAuthSecretArn:
+    Type: String
+    Default: ""
+    AllowedPattern: ^$|^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$
+    ConstraintDescription: Must be an AWS Secrets Manager secret ARN or empty
+
+  PartnerIntelAuthKmsKeyArn:
+    Type: String
+    Default: ""
+    AllowedPattern: ^$|^arn:[^:]+:kms:[^:]+:[0-9]{12}:key/.+$
+    ConstraintDescription: Must be the customer-managed KMS key ARN for the partner secret or empty
 
   VpcCidr:
     Type: String
@@ -112,11 +148,41 @@ Parameters:
     Description: "Set to true to deploy VPC and Redis resources; false disables Redis-dependent features for dev/demo"
 
 Rules:
+  PlatformAuthConfiguration:
+    Assertions:
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref PlatformAuthMode, none]
+            - !Equals [!Ref PlatformAuthSecretArn, ""]
+          - !And
+            - !Not [!Equals [!Ref PlatformAuthMode, none]]
+            - !Not [!Equals [!Ref PlatformAuthSecretArn, ""]]
+        AssertDescription: Platform auth mode and secret ARN must be configured together
+      - Assert: !Or
+          - !Equals [!Ref PlatformAuthKmsKeyArn, ""]
+          - !Not [!Equals [!Ref PlatformAuthSecretArn, ""]]
+        AssertDescription: Platform KMS key ARN requires a platform secret ARN
+
+  PartnerIntelAuthConfiguration:
+    Assertions:
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref PartnerIntelAuthMode, none]
+            - !Equals [!Ref PartnerIntelAuthSecretArn, ""]
+          - !And
+            - !Not [!Equals [!Ref PartnerIntelAuthMode, none]]
+            - !Not [!Equals [!Ref PartnerIntelAuthSecretArn, ""]]
+        AssertDescription: Partner auth mode and secret ARN must be configured together
+      - Assert: !Or
+          - !Equals [!Ref PartnerIntelAuthKmsKeyArn, ""]
+          - !Not [!Equals [!Ref PartnerIntelAuthSecretArn, ""]]
+        AssertDescription: Partner KMS key ARN requires a partner secret ARN
+
   ProductionPublicationGuard:
     RuleCondition: !Equals [!Ref Environment, prod]
     Assertions:
       - Assert: !Equals [!Ref AcknowledgeIncompleteProduction, "true"]
-        AssertDescription: Production is disabled until the documented security gaps are resolved
+        AssertDescription: Production deployments require explicit checklist confirmation
 
   ProductionTopologyConfiguration:
     RuleCondition: !Or
@@ -138,6 +204,18 @@ Rules:
       - Assert: !Not
           - !Equals [!Ref PartnerIntelApiUrl, https://intel-api.partner-network.internal]
         AssertDescription: Production deployments require a partner intelligence API URL
+      - Assert: !Not
+          - !Equals [!Ref PlatformAuthMode, none]
+        AssertDescription: Production deployments require platform API authentication
+      - Assert: !Not
+          - !Equals [!Ref PlatformAuthSecretArn, ""]
+        AssertDescription: Production deployments require a platform API secret ARN
+      - Assert: !Not
+          - !Equals [!Ref PartnerIntelAuthMode, none]
+        AssertDescription: Production deployments require partner intelligence authentication
+      - Assert: !Not
+          - !Equals [!Ref PartnerIntelAuthSecretArn, ""]
+        AssertDescription: Production deployments require a partner intelligence secret ARN
 
 Conditions:
   IsProd: !Equals [!Ref Environment, prod]
@@ -151,6 +229,10 @@ Conditions:
     - !Or
       - !Equals [!Ref Environment, prodtest]
       - !Equals [!Ref Environment, prod]
+  HasPlatformAuthSecret: !Not [!Equals [!Ref PlatformAuthSecretArn, ""]]
+  HasPartnerIntelAuthSecret: !Not [!Equals [!Ref PartnerIntelAuthSecretArn, ""]]
+  HasPlatformAuthKmsKey: !Not [!Equals [!Ref PlatformAuthKmsKeyArn, ""]]
+  HasPartnerIntelAuthKmsKey: !Not [!Equals [!Ref PartnerIntelAuthKmsKeyArn, ""]]
 
 # =============================================================================
 # REST API Gateway
@@ -294,12 +376,24 @@ Resources:
       StageName: !Ref Environment
       AutoDeploy: true
 
+  WebSocketAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref WebSocketApi
+      AuthorizerType: REQUEST
+      AuthorizerResultTtlInSeconds: 0
+      AuthorizerUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketAuthorizerFunction.Arn}/invocations"
+      IdentitySource:
+        - route.request.querystring.ticket
+      Name: !Sub "safetyagent-ws-ticket-${Environment}"
+
   WebSocketConnectRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref WebSocketApi
       RouteKey: "$connect"
-      AuthorizationType: NONE
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref WebSocketAuthorizer
       Target: !Sub "integrations/${WebSocketConnectIntegration}"
 
   WebSocketDisconnectRoute:
@@ -346,6 +440,14 @@ Resources:
       FunctionName: !Ref WebSocketHandlerFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
+
+  WebSocketAuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WebSocketAuthorizerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/authorizers/*"
 
 # =============================================================================
 # Cognito User Pool
@@ -1016,6 +1118,28 @@ Resources:
         - AttributeName: connection_id
           KeyType: HASH
 
+  WebSocketTicketsTable:
+    Type: AWS::DynamoDB::Table
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
+    Properties:
+      TableName: !Sub "tg-websocket-tickets-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      AttributeDefinitions:
+        - AttributeName: ticket
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ticket
+          KeyType: HASH
+
 # =============================================================================
 # S3 Buckets
 # =============================================================================
@@ -1626,6 +1750,50 @@ Resources:
               - ec2:DetachNetworkInterface
             Resource: "*"
 
+  PlatformIntegrationSecretReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: HasPlatformAuthSecret
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Ref PlatformAuthSecretArn
+          - !If
+            - HasPlatformAuthKmsKey
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+              Resource: !Ref PlatformAuthKmsKeyArn
+              Condition:
+                StringEquals:
+                  kms:ViaService: !Sub "secretsmanager.${AWS::Region}.${AWS::URLSuffix}"
+            - !Ref "AWS::NoValue"
+
+  PartnerIntelSecretReadPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: HasPartnerIntelAuthSecret
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Ref PartnerIntelAuthSecretArn
+          - !If
+            - HasPartnerIntelAuthKmsKey
+            - Effect: Allow
+              Action:
+                - kms:Decrypt
+              Resource: !Ref PartnerIntelAuthKmsKeyArn
+              Condition:
+                StringEquals:
+                  kms:ViaService: !Sub "secretsmanager.${AWS::Region}.${AWS::URLSuffix}"
+            - !Ref "AWS::NoValue"
+
 # =============================================================================
 # Lambda Functions — API Handlers
 # =============================================================================
@@ -1719,9 +1887,12 @@ Resources:
             - IsProdTest
             - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
             - !Ref PlatformUserApiUrl
+          PLATFORM_AUTH_MODE: !Ref PlatformAuthMode
+          PLATFORM_AUTH_SECRET_ARN: !Ref PlatformAuthSecretArn
       Policies:
         - !Ref SafetyAgentBasePolicy
         - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
+        - !If [HasPlatformAuthSecret, !Ref PlatformIntegrationSecretReadPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref CasesTable
         - DynamoDBCrudPolicy:
@@ -1793,9 +1964,18 @@ Resources:
         - SecurityGroupIds: [!Ref LambdaSecurityGroup]
           SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
         - !Ref "AWS::NoValue"
+      Environment:
+        Variables:
+          PLATFORM_USER_API_URL: !If
+            - IsProdTest
+            - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
+            - !Ref PlatformUserApiUrl
+          PLATFORM_AUTH_MODE: !Ref PlatformAuthMode
+          PLATFORM_AUTH_SECRET_ARN: !Ref PlatformAuthSecretArn
       Policies:
         - !Ref SafetyAgentBasePolicy
         - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
+        - !If [HasPlatformAuthSecret, !Ref PlatformIntegrationSecretReadPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref ReviewQueueTable
         - DynamoDBCrudPolicy:
@@ -1841,8 +2021,11 @@ Resources:
             - IsProdTest
             - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/partner"
             - !Ref PartnerIntelApiUrl
+          PARTNER_INTEL_AUTH_MODE: !Ref PartnerIntelAuthMode
+          PARTNER_INTEL_AUTH_SECRET_ARN: !Ref PartnerIntelAuthSecretArn
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [HasPartnerIntelAuthSecret, !Ref PartnerIntelSecretReadPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref BlocklistTable
         - DynamoDBCrudPolicy:
@@ -1891,16 +2074,12 @@ Resources:
             RestApiId: !Ref SafetyAgentApi
             Path: /api/v1/metrics/realtime
             Method: GET
-            Auth:
-              Authorizer: NONE
         PrometheusMetrics:
           Type: Api
           Properties:
             RestApiId: !Ref SafetyAgentApi
             Path: /api/v1/metrics
             Method: GET
-            Auth:
-              Authorizer: NONE
         RecentActions:
           Type: Api
           Properties:
@@ -1919,6 +2098,7 @@ Resources:
         Variables:
           USER_POOL_ID: !Ref CognitoUserPool
           CLIENT_ID: !Ref CognitoUserPoolClient
+          WEBSOCKET_TICKETS_TABLE: !Ref WebSocketTicketsTable
       Policies:
         - !Ref SafetyAgentBasePolicy
         - Statement:
@@ -1927,6 +2107,10 @@ Resources:
                 - cognito-idp:AdminInitiateAuth
                 - cognito-idp:AdminGetUser
               Resource: !GetAtt CognitoUserPool.Arn
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource: !GetAtt WebSocketTicketsTable.Arn
       Events:
         Login:
           Type: Api
@@ -1936,6 +2120,12 @@ Resources:
             Method: POST
             Auth:
               Authorizer: NONE
+        WebSocketTicket:
+          Type: Api
+          Properties:
+            RestApiId: !Ref SafetyAgentApi
+            Path: /api/v1/auth/websocket-ticket
+            Method: POST
 
   HealthHandlerFunction:
     Type: AWS::Serverless::Function
@@ -2100,6 +2290,24 @@ Resources:
                 - execute-api:ManageConnections
               Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*"
 
+  WebSocketAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "tg-websocket-authorizer-${Environment}"
+      CodeUri: lambdas/
+      Handler: handlers.websocket_authorizer.lambda_handler
+      Timeout: 5
+      Environment:
+        Variables:
+          WEBSOCKET_TICKETS_TABLE: !Ref WebSocketTicketsTable
+      Policies:
+        - !Ref SafetyAgentBasePolicy
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:DeleteItem
+              Resource: !GetAtt WebSocketTicketsTable.Arn
+
 # =============================================================================
 # Lambda Functions — Event Processors
 # =============================================================================
@@ -2168,9 +2376,12 @@ Resources:
             - IsProdTest
             - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
             - !Ref PlatformUserApiUrl
+          PLATFORM_AUTH_MODE: !Ref PlatformAuthMode
+          PLATFORM_AUTH_SECRET_ARN: !Ref PlatformAuthSecretArn
       Policies:
         - !Ref SafetyAgentBasePolicy
         - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
+        - !If [HasPlatformAuthSecret, !Ref PlatformIntegrationSecretReadPolicy, !Ref "AWS::NoValue"]
         - DynamoDBReadPolicy:
             TableName: !Ref BlocklistTable
         - DynamoDBCrudPolicy:
@@ -2221,8 +2432,11 @@ Resources:
             - IsProdTest
             - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
             - !Ref PlatformUserApiUrl
+          PLATFORM_AUTH_MODE: !Ref PlatformAuthMode
+          PLATFORM_AUTH_SECRET_ARN: !Ref PlatformAuthSecretArn
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [HasPlatformAuthSecret, !Ref PlatformIntegrationSecretReadPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref AuditLogsTable
       Events:
@@ -2261,10 +2475,13 @@ Resources:
             - IsProdTest
             - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/messages"
             - !Ref PlatformMessagingApiUrl
+          PLATFORM_AUTH_MODE: !Ref PlatformAuthMode
+          PLATFORM_AUTH_SECRET_ARN: !Ref PlatformAuthSecretArn
           BEDROCK_MODEL_ID: !Ref BedrockModelId
       Policies:
         - !Ref SafetyAgentBasePolicy
         - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
+        - !If [HasPlatformAuthSecret, !Ref PlatformIntegrationSecretReadPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref EvidenceMetadataTable
         - DynamoDBReadPolicy:
@@ -2323,9 +2540,12 @@ Resources:
             - IsProdTest
             - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
             - !Ref PlatformUserApiUrl
+          PLATFORM_AUTH_MODE: !Ref PlatformAuthMode
+          PLATFORM_AUTH_SECRET_ARN: !Ref PlatformAuthSecretArn
       Policies:
         - !Ref SafetyAgentBasePolicy
         - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
+        - !If [HasPlatformAuthSecret, !Ref PlatformIntegrationSecretReadPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref CasesTable
         - DynamoDBCrudPolicy:
