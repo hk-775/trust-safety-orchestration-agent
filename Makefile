@@ -9,7 +9,7 @@ SEED_DEMO_DATA ?= false
 CONFIRM_PRODUCTION_DEPLOY ?= false
 ALLOW_PRODUCTION_DESTROY ?= false
 
-.PHONY: setup audit build check-node frontend-build deploy deploy-backend deploy-lite deploy-prodtest deploy-prod deploy-quick dev clean test seed simulate help quickstart destroy lint
+.PHONY: setup audit build check-lambda-requirements check-node frontend-build deploy deploy-backend deploy-lite deploy-prodtest deploy-prod deploy-quick dev clean test seed simulate help quickstart destroy lint
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -30,7 +30,10 @@ check-node:
 build: ## Build the SAM application
 	sam build --parallel
 
-audit: check-node ## Audit Python and frontend dependencies and Python security findings
+check-lambda-requirements: ## Verify generated Lambda requirements match uv.lock
+	./scripts/check_lambda_requirements.sh
+
+audit: check-node check-lambda-requirements ## Audit dependencies and Python security findings
 	uv run pip-audit -r lambdas/requirements.txt --require-hashes --disable-pip
 	uv run bandit -q -r lambdas -x lambdas/tests -ll
 	cd frontend && npm audit --audit-level=high

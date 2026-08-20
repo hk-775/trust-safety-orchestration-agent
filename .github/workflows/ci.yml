@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: Verify Lambda requirements
+        run: ./scripts/check_lambda_requirements.sh
+
       - name: Lint
         run: uv run ruff check lambdas/ scripts/delete_stack.py scripts/live_simulator.py scripts/seed_demo_data.py
 

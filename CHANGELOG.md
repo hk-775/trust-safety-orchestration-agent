@@ -17,8 +17,10 @@ All notable changes to this project are documented here.
 - Operational metrics now require Cognito authentication.
 - Browser authentication state is memory-only.
 - Production health responses expose only aggregate status.
-- AWS SDK, Redis, Vite, jsdom, Zustand, Testing Library, PostCSS tooling, and
-  pinned GitHub Actions were updated together.
+- AWS SDK, Redis, Vite, jsdom, TypeScript, Zustand, Testing Library, PostCSS
+  tooling, and pinned GitHub Actions were updated together.
+- Dependabot uses native uv lockfile support, and CI verifies that generated
+  Lambda requirements remain synchronized with `uv.lock`.
 - Dependabot groups coupled packages and ignores unsupported framework majors.
 
 ### Security
