@@ -48,6 +48,8 @@ const VIOLATION_TYPES: ViolationType[] = [
 ]
 
 const ACTIONS = ['warning', 'content_removal', 'temp_suspension', 'permanent_ban', 'rate_limit']
+const SAFETY_SCORE_DELTAS = [-2, 1, 0, -1, 2]
+const QUEUE_DEPTH_DELTAS = [-3, 1, 2, -1, 3, 0, -2]
 
 const SCAM_MESSAGES = [
   "Hey gorgeous! I've been making amazing returns with this new crypto platform.",
@@ -80,6 +82,7 @@ let _safetyScore = 82
 let _casesProcessed = 1247
 let _queueDepth = 23
 let _cycleCount = 0
+let _metricsCallCount = 0
 
 function buildCases(): Case[] {
   const cases: Case[] = []
@@ -216,9 +219,16 @@ export function mockLogin(_email: string, _password: string) {
 }
 
 export function mockMetrics(): RealtimeMetrics {
-  _safetyScore = Math.max(60, Math.min(95, _safetyScore + randInt(-2, 2)))
+  const metricsIndex = _metricsCallCount++
+  _safetyScore = Math.max(
+    60,
+    Math.min(95, _safetyScore + SAFETY_SCORE_DELTAS[metricsIndex % SAFETY_SCORE_DELTAS.length]),
+  )
   _casesProcessed += randInt(1, 8)
-  _queueDepth = Math.max(5, Math.min(60, _queueDepth + randInt(-3, 3)))
+  _queueDepth = Math.max(
+    5,
+    Math.min(60, _queueDepth + QUEUE_DEPTH_DELTAS[metricsIndex % QUEUE_DEPTH_DELTAS.length]),
+  )
 
   return {
     platform_safety_score: _safetyScore,
