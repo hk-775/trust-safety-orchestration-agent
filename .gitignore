@@ -26,6 +26,7 @@ frontend/dist/
 frontend/build/
 frontend/.env.local
 frontend/.env.production
+*.tsbuildinfo
 
 # IDE
 .idea/
