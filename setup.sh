@@ -1,64 +1,56 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "============================================"
-echo "  Trust & Safety Orchestration Agent Setup"
-echo "============================================"
-echo ""
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
 
-# Check prerequisites
-command -v aws >/dev/null 2>&1 || { echo "ERROR: AWS CLI not found. Install: https://aws.amazon.com/cli/"; exit 1; }
-command -v sam >/dev/null 2>&1 || { echo "ERROR: SAM CLI not found. Install: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html"; exit 1; }
-command -v node >/dev/null 2>&1 || { echo "ERROR: Node.js not found. Install: https://nodejs.org/"; exit 1; }
+echo "Trust & Safety Orchestration Agent setup"
 
-# Install uv if not present
-if ! command -v uv >/dev/null 2>&1; then
-    echo "Installing uv (fast Python package manager)..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
-fi
+for command_name in aws sam node npm; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+        echo "ERROR: Required command not found: ${command_name}" >&2
+        exit 1
+    fi
+done
 
-echo "✓ All prerequisites found (uv $(uv --version 2>/dev/null | head -1))"
-echo ""
-
-# Check AWS credentials
-if ! aws sts get-caller-identity >/dev/null 2>&1; then
-    echo "ERROR: AWS credentials not configured. Run: aws configure"
+if ! node -e '
+    const [major, minor] = process.versions.node.split(".").map(Number);
+    const supported = major === 20 ? minor >= 19 : major === 22 ? minor >= 12 : major > 22;
+    process.exit(supported ? 0 : 1);
+'; then
+    echo "ERROR: Node.js 20.19+, 22.12+, or a newer major release is required." >&2
     exit 1
 fi
 
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-REGION=$(aws configure get region 2>/dev/null || echo "us-east-1")
-echo "✓ AWS Account: $ACCOUNT_ID"
-echo "✓ Region: $REGION"
-echo ""
+if ! command -v uv >/dev/null 2>&1; then
+    echo "ERROR: uv is required. Install it from https://docs.astral.sh/uv/getting-started/installation/." >&2
+    exit 1
+fi
 
-# Install Python dependencies via uv
-echo "Installing Python dependencies (uv sync)..."
-uv sync -q
-echo "✓ Python dependencies installed"
+echo "Installing Python dependencies..."
+uv sync --locked --quiet
 
-# Install frontend dependencies
 echo "Installing frontend dependencies..."
-cd frontend && npm install --silent && cd ..
-echo "✓ Frontend dependencies installed"
+(
+    cd frontend
+    npm ci --silent
+)
 
-# Build
-echo ""
 echo "Building SAM application..."
 sam build --parallel
-echo "✓ Build complete"
 
-echo ""
-echo "============================================"
-echo "  Setup Complete!"
-echo "============================================"
-echo ""
-echo "Next steps:"
-echo ""
-echo "  1. Deploy:     sam deploy --guided"
-echo "  2. Seed data:  python scripts/seed_demo_data.py"
-echo "  3. Frontend:   cd frontend && npm run dev"
-echo ""
-echo "Or use: make deploy"
-echo ""
+echo "Building frontend..."
+(
+    cd frontend
+    npm run build
+)
+
+if aws sts get-caller-identity >/dev/null 2>&1; then
+    account_id="$(aws sts get-caller-identity --query Account --output text)"
+    region="$(aws configure get region 2>/dev/null || true)"
+    echo "AWS credentials available for account ${account_id}, region ${region:-us-east-1}."
+else
+    echo "AWS credentials are not active. Authenticate before running a deployment."
+fi
+
+echo "Setup complete. Run 'make quickstart' for a seeded dev deployment."

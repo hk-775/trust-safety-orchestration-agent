@@ -4,19 +4,18 @@ import os
 import time
 from datetime import datetime, timezone
 
-import boto3
-
 from repositories import (
     case_repository,
     blocklist_repository,
     audit_repository,
     appeal_repository,
 )
+from services import notification_service
+from services.http_client import build_https_url
 
 logger = logging.getLogger(__name__)
 
 PLATFORM_USER_API_URL = os.environ.get("PLATFORM_USER_API_URL", "")
-NOTIFICATION_QUEUE_URL = os.environ.get("NOTIFICATION_QUEUE_URL", "")
 
 VALID_ACTIONS = {
     "warning",
@@ -29,7 +28,7 @@ VALID_ACTIONS = {
 
 def _call_platform_enforcement(user_id: str, action: str, params: dict | None = None) -> dict:
     import urllib.request
-    url = f"{PLATFORM_USER_API_URL}/{user_id}/enforce"
+    url = build_https_url(PLATFORM_USER_API_URL, user_id, "enforce")
     payload = json.dumps({"action": action, **(params or {})}).encode()
     try:
         req = urllib.request.Request(
@@ -40,27 +39,15 @@ def _call_platform_enforcement(user_id: str, action: str, params: dict | None = 
                 "X-Api-Key": os.environ.get("PLATFORM_API_KEY", ""),
             },
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        # build_https_url rejects non-HTTPS schemes before this request.
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310
             return json.loads(resp.read())
     except Exception as e:
-        logger.error("Platform enforcement API failed", extra={"user_id": user_id, "error": str(e)})
+        logger.error(
+            "Platform enforcement API failed",
+            extra={"error_type": type(e).__name__},
+        )
         raise
-
-
-def _queue_notification(user_id: str, notification_type: str, data: dict) -> None:
-    if not NOTIFICATION_QUEUE_URL:
-        logger.warning("Notification queue URL not configured")
-        return
-    sqs = boto3.client("sqs")
-    sqs.send_message(
-        QueueUrl=NOTIFICATION_QUEUE_URL,
-        MessageBody=json.dumps({
-            "user_id": user_id,
-            "notification_type": notification_type,
-            "data": data,
-            "queued_at": datetime.now(timezone.utc).isoformat(),
-        }),
-    )
 
 
 def execute_action(
@@ -105,13 +92,12 @@ def execute_action(
         enforcement_action=action,
     )
 
-    _queue_notification(user_id, "enforcement", {
-        "case_id": case_id,
-        "violation_type": violation_type,
-        "action": action,
-        "duration_hours": duration_hours,
-        "appeal_id": appeal_id,
-    })
+    notification_result = notification_service.send_enforcement_notification(
+        user_id=user_id,
+        enforcement_id=case_id,
+        violation_type=violation_type,
+        action=action,
+    )
 
     elapsed_ms = int((time.time() - start_time) * 1000)
 
@@ -135,7 +121,12 @@ def execute_action(
         "audit_trail_id": audit_id,
         "action_status": "completed",
         "action": action,
-        "user_notified": True,
+        "user_notified": False,
+        "notification_status": "queued",
+        "notification_message_ids": [
+            notification_result["in_app_message_id"],
+            notification_result["email_message_id"],
+        ],
         "appeal_id": appeal_id,
         "response_time_ms": elapsed_ms,
     }
@@ -183,7 +174,10 @@ def execute_bulk_action(
                 if action == "permanent_ban":
                     _handle_permanent_ban(uid, violation_type)
             except Exception as e:
-                logger.error("Bulk action failed for user", extra={"user_id": uid, "error": str(e)})
+                logger.error(
+                    "Bulk action failed for one user",
+                    extra={"error_type": type(e).__name__},
+                )
                 failed.append(uid)
 
     case_repository.update_case(

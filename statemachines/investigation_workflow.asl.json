@@ -89,8 +89,8 @@
       "Parameters": {
         "case_id.$": "$.case_id",
         "user_id.$": "$.user_id",
-        "evidence.$": "$.evidence",
-        "confidence.$": "$.confidence"
+        "crisis_type.$": "$.evidence.sensitive_category",
+        "is_victim": false
       },
       "ResultPath": "$.crisis_result",
       "Retry": [
@@ -101,7 +101,14 @@
           "BackoffRate": 2.0
         }
       ],
-      "Next": "EscalateToHumanReview"
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "EscalateOnError"
+        }
+      ],
+      "Next": "InvestigationComplete"
     },
 
     "RouteDecision": {

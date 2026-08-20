@@ -1,4 +1,3 @@
-import json
 import logging
 
 from services import confidence_calculator_service
@@ -7,8 +6,6 @@ logger = logging.getLogger(__name__)
 
 
 def lambda_handler(event, context):
-    logger.info("Confidence calculator invoked", extra={"event": json.dumps(event)[:500]})
-
     case_id = event["case_id"]
     evidence = event["evidence"]
 

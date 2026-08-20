@@ -1,18 +1,54 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { Layout } from '@/components/Layout'
 import { LoginPage } from '@/components/LoginPage'
-import { DemoPage } from '@/modules/demo/DemoPage'
-import { DashboardPage } from '@/modules/dashboard/DashboardPage'
-import { ReviewQueuePage } from '@/modules/review/ReviewQueuePage'
-import { CasesListPage } from '@/modules/case/CasesListPage'
-import { CaseDetailPage } from '@/modules/case/CaseDetailPage'
-import { AdminConfigPage } from '@/modules/admin/AdminConfigPage'
-import { WellbeingPage } from '@/modules/wellbeing/WellbeingPage'
-import { GettingStartedPage } from '@/modules/getting-started/GettingStartedPage'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 import type { ReactNode } from 'react'
+
+const DemoPage = lazy(() =>
+  import('@/modules/demo/DemoPage').then(({ DemoPage }) => ({ default: DemoPage })),
+)
+const DashboardPage = lazy(() =>
+  import('@/modules/dashboard/DashboardPage').then(({ DashboardPage }) => ({
+    default: DashboardPage,
+  })),
+)
+const ReviewQueuePage = lazy(() =>
+  import('@/modules/review/ReviewQueuePage').then(({ ReviewQueuePage }) => ({
+    default: ReviewQueuePage,
+  })),
+)
+const CasesListPage = lazy(() =>
+  import('@/modules/case/CasesListPage').then(({ CasesListPage }) => ({
+    default: CasesListPage,
+  })),
+)
+const CaseDetailPage = lazy(() =>
+  import('@/modules/case/CaseDetailPage').then(({ CaseDetailPage }) => ({
+    default: CaseDetailPage,
+  })),
+)
+const AdminConfigPage = lazy(() =>
+  import('@/modules/admin/AdminConfigPage').then(({ AdminConfigPage }) => ({
+    default: AdminConfigPage,
+  })),
+)
+const WellbeingPage = lazy(() =>
+  import('@/modules/wellbeing/WellbeingPage').then(({ WellbeingPage }) => ({
+    default: WellbeingPage,
+  })),
+)
+const GettingStartedPage = lazy(() =>
+  import('@/modules/getting-started/GettingStartedPage').then(({ GettingStartedPage }) => ({
+    default: GettingStartedPage,
+  })),
+)
+
+function DeferredPage({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<LoadingSpinner />}>{children}</Suspense>
+}
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -30,13 +66,62 @@ function AuthenticatedApp() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<DashboardPage />} />
-        <Route path="review" element={<ReviewQueuePage />} />
-        <Route path="cases" element={<CasesListPage />} />
-        <Route path="cases/:caseId" element={<CaseDetailPage />} />
-        <Route path="admin" element={<AdminConfigPage />} />
-        <Route path="wellbeing" element={<WellbeingPage />} />
-        <Route path="getting-started" element={<GettingStartedPage />} />
+        <Route
+          index
+          element={
+            <DeferredPage>
+              <DashboardPage />
+            </DeferredPage>
+          }
+        />
+        <Route
+          path="review"
+          element={
+            <DeferredPage>
+              <ReviewQueuePage />
+            </DeferredPage>
+          }
+        />
+        <Route
+          path="cases"
+          element={
+            <DeferredPage>
+              <CasesListPage />
+            </DeferredPage>
+          }
+        />
+        <Route
+          path="cases/:caseId"
+          element={
+            <DeferredPage>
+              <CaseDetailPage />
+            </DeferredPage>
+          }
+        />
+        <Route
+          path="admin"
+          element={
+            <DeferredPage>
+              <AdminConfigPage />
+            </DeferredPage>
+          }
+        />
+        <Route
+          path="wellbeing"
+          element={
+            <DeferredPage>
+              <WellbeingPage />
+            </DeferredPage>
+          }
+        />
+        <Route
+          path="getting-started"
+          element={
+            <DeferredPage>
+              <GettingStartedPage />
+            </DeferredPage>
+          }
+        />
       </Route>
     </Routes>
   )
@@ -46,7 +131,14 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="/demo" element={<DemoPage />} />
+      <Route
+        path="/demo"
+        element={
+          <DeferredPage>
+            <DemoPage />
+          </DeferredPage>
+        }
+      />
       <Route path="/login" element={<LoginPage />} />
       <Route
         path="/app/*"

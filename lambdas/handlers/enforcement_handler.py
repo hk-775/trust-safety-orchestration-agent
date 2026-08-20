@@ -1,6 +1,7 @@
 import json
 import logging
 
+from handlers.http_response import response_headers
 from services import enforcement_engine_service
 
 logger = logging.getLogger(__name__)
@@ -10,7 +11,7 @@ def lambda_handler(event, context):
     try:
         path = event.get("resource", event.get("path", ""))
 
-        if "bulk" in path:
+        if event.get("is_bulk") or "bulk" in path:
             return _execute_bulk(event)
         else:
             return _execute_single(event)
@@ -23,8 +24,17 @@ def lambda_handler(event, context):
         return _response(500, {"error": "Internal server error"})
 
 
+def _body(event):
+    body = event.get("body")
+    if body is None:
+        return event
+    if isinstance(body, str):
+        return json.loads(body or "{}")
+    return body
+
+
 def _execute_single(event):
-    body = json.loads(event.get("body", "{}"))
+    body = _body(event)
 
     required = ["case_id", "action", "violation_type", "confidence_score"]
     missing = [f for f in required if f not in body]
@@ -46,7 +56,7 @@ def _execute_single(event):
 
 
 def _execute_bulk(event):
-    body = json.loads(event.get("body", "{}"))
+    body = _body(event)
 
     required = ["case_id", "user_ids", "action", "violation_type"]
     missing = [f for f in required if f not in body]
@@ -71,6 +81,6 @@ def _execute_bulk(event):
 def _response(status_code, body):
     return {
         "statusCode": status_code,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+        "headers": response_headers(),
         "body": json.dumps(body, default=str),
     }

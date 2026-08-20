@@ -16,9 +16,9 @@ interface StepDef {
 
 const STEPS: StepDef[] = [
   {
-    title: 'SafetyAgent Live Demo',
+    title: 'SafetyAgent Illustrative Scenario',
     narrative:
-      "Watch SafetyAgent's autonomous safety pipeline process a real threat scenario — from initial detection through investigation, decision, and enforcement. This demo follows a crypto-romance scam that targets multiple users across the platform.",
+      "This synthetic walkthrough illustrates the sample's detection, investigation, decision, and enforcement paths. Its users, scores, evidence, and timing are example data, not a benchmark or live production result.",
   },
   {
     title: 'Behavioral Anomaly Detected',
@@ -28,7 +28,7 @@ const STEPS: StepDef[] = [
   {
     title: 'Evidence Assembly (Parallel)',
     narrative:
-      'Step Functions launches 5 parallel evidence gathering tasks. In under 45 seconds, the system assembles: message content analysis (Bedrock Claude identifies crypto investment scam patterns), image analysis (stock photo detected via reverse search), cross-platform check (device fingerprint matches a banned user on a partner app), and previous reports from 3 other users.',
+      'In this synthetic scenario, the evidence package includes message analysis, an illustrative image-adapter result, a configured partner-intelligence match, previous reports, and behavioral signals. Image and partner adapters require real integrations.',
   },
   {
     title: 'Confidence: 94.2% — Scam',
@@ -43,12 +43,12 @@ const STEPS: StepDef[] = [
   {
     title: 'Account Permanently Banned',
     narrative:
-      'Within 12 minutes of first detection: account permanently banned, all active conversations terminated, device fingerprint + email hash added to cross-platform blocklist (shared with partner apps), appeal record created, user notified. Full audit trail logged immutably.',
+      'The scenario shows a platform enforcement call, a local blocklist update, an appeal record, queued channel notifications, and DynamoDB audit records. Downstream account effects, delivery, and partner sharing depend on the adopter’s integrations.',
   },
   {
     title: 'Sensitive Case: Always Human',
     narrative:
-      "Not all cases are this clear-cut. When SafetyAgent detects self-harm indicators, it NEVER takes autonomous action. Instead: wellbeing resources are sent to the user within 5 minutes, the case is immediately escalated to a trained human reviewer with full context, and the system blocks any automated enforcement to protect the vulnerable user.",
+      'Sensitive categories such as self-harm do not take an autonomous enforcement path. The sample places the case in human review and queues localized wellbeing resources when the affected user is identified as a victim.',
   },
 ]
 
@@ -407,15 +407,14 @@ function DecisionTree() {
 /* ------------------------------------------------------------------ */
 
 const ENFORCEMENT_ACTIONS = [
-  { time: 'T+0:00', action: 'Anomaly detected by Behavioral Event Processor', icon: 'detect' },
-  { time: 'T+0:45', action: 'Evidence assembly completed (5 parallel tasks)', icon: 'evidence' },
-  { time: 'T+1:02', action: 'Confidence scored at 94.2% (scam)', icon: 'score' },
-  { time: 'T+1:05', action: 'Policy engine: autonomous permanent ban approved', icon: 'decision' },
-  { time: 'T+1:08', action: 'Account permanently banned', icon: 'ban' },
-  { time: 'T+1:08', action: 'All 47 active conversations terminated', icon: 'terminate' },
-  { time: 'T+1:10', action: 'Device fingerprint + email hash added to cross-platform blocklist', icon: 'blocklist' },
-  { time: 'T+1:11', action: 'Appeal record created, user notified', icon: 'notify' },
-  { time: 'T+12:00', action: 'Full audit trail immutably logged', icon: 'audit' },
+  { time: 'Step 1', action: 'Anomaly detected by Behavioral Event Processor', icon: 'detect' },
+  { time: 'Step 2', action: 'Evidence package assembled', icon: 'evidence' },
+  { time: 'Step 3', action: 'Illustrative confidence scored at 94.2% (scam)', icon: 'score' },
+  { time: 'Step 4', action: 'Policy engine selects the autonomous path', icon: 'decision' },
+  { time: 'Step 5', action: 'Permanent-ban request sent to the Platform API', icon: 'ban' },
+  { time: 'Step 6', action: 'Local blocklist entries added', icon: 'blocklist' },
+  { time: 'Step 7', action: 'Appeal record and channel notifications queued', icon: 'notify' },
+  { time: 'Step 8', action: 'Audit records written to DynamoDB', icon: 'audit' },
 ]
 
 function EnforcementTimeline() {
@@ -451,7 +450,7 @@ function EnforcementTimeline() {
         <svg className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
         </svg>
-        <p className="text-sm font-medium text-green-800">Total time: 12 minutes detection-to-resolution</p>
+        <p className="text-sm font-medium text-green-800">Illustrative sequence; no production SLA implied</p>
       </div>
     </div>
   )
@@ -491,13 +490,13 @@ function CrisisPanel() {
             <svg className="h-4 w-4 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
             </svg>
-            <span className="text-sm text-gray-700">Wellbeing resources sent within 5 minutes</span>
+            <span className="text-sm text-gray-700">Wellbeing resources queued for delivery</span>
           </div>
           <div className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 border border-purple-100">
             <svg className="h-4 w-4 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
             </svg>
-            <span className="text-sm text-gray-700">Escalated to trained human reviewer</span>
+            <span className="text-sm text-gray-700">Escalated to the human review queue</span>
           </div>
           <div className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 border border-purple-100">
             <svg className="h-4 w-4 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">

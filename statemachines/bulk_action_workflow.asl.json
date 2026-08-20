@@ -6,8 +6,16 @@
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.confidence_score",
-          "NumericGreaterThanEquals": 0.85,
+          "And": [
+            {
+              "Variable": "$.confidence_score",
+              "NumericGreaterThanEquals": 0.85
+            },
+            {
+              "Variable": "$.user_ids[0]",
+              "IsPresent": true
+            }
+          ],
           "Next": "ExecuteBulkAction"
         }
       ],
@@ -49,9 +57,14 @@
       "Resource": "${EscalationHandlerArn}",
       "Parameters": {
         "case_id.$": "$.case_id",
-        "user_ids.$": "$.user_ids",
-        "confidence_score.$": "$.confidence_score",
-        "attack_pattern.$": "$.attack_pattern",
+        "user_id.$": "$.user_id",
+        "confidence": {
+          "scores": {
+            "bot_farm.$": "$.confidence_score"
+          },
+          "primary_violation": "bot_farm",
+          "primary_score.$": "$.confidence_score"
+        },
         "reason": "bulk_action_low_confidence"
       },
       "ResultPath": "$.escalation_result",

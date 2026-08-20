@@ -349,7 +349,7 @@ svg.diagram {
 
 <div class="header">
   <h1>SafetyAgent Architecture</h1>
-  <p>Autonomous Trust & Safety System for the app — millions of users with high autonomous resolution rates</p>
+  <p>Open-source reference implementation with production integration points called out explicitly</p>
 </div>
 
 <div class="controls">
@@ -422,12 +422,12 @@ svg.diagram {
       <text class="agent-badge" x="110" y="445">AGENT</text>
     </g>
 
-    <!-- Anomaly Detection (SageMaker) -->
-    <g class="node" data-id="sagemaker" data-phase="detection" onclick="showInfo('sagemaker')">
+    <!-- Rule-based anomaly scoring -->
+    <g class="node" data-id="anomaly-scoring" data-phase="detection" onclick="showInfo('anomaly-scoring')">
       <rect class="node-box" x="220" y="180" width="140" height="60" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.5)"/>
       <text class="node-icon" x="290" y="205">&#x1F9E0;</text>
-      <text class="node-label" x="290" y="223">SageMaker</text>
-      <text class="node-sublabel" x="290" y="235">Anomaly Scoring</text>
+      <text class="node-label" x="290" y="223">Anomaly Scoring</text>
+      <text class="node-sublabel" x="290" y="235">Lambda Heuristics</text>
     </g>
 
     <!-- Cross-Platform Intel -->
@@ -435,7 +435,7 @@ svg.diagram {
       <rect class="node-box" x="220" y="390" width="140" height="60" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.5)"/>
       <text class="node-icon" x="290" y="415">&#x1F310;</text>
       <text class="node-label" x="290" y="433">Partner Network Intel</text>
-      <text class="node-sublabel" x="290" y="445">mTLS Blocklist</text>
+      <text class="node-sublabel" x="290" y="445">Configured HTTPS API</text>
     </g>
 
     <!-- ===== INVESTIGATION PHASE ===== -->
@@ -478,7 +478,7 @@ svg.diagram {
       <rect class="node-box" x="420" y="450" width="150" height="55" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.5)"/>
       <text class="node-icon" x="495" y="472">&#x1F4BE;</text>
       <text class="node-label" x="495" y="490">DynamoDB</text>
-      <text class="node-sublabel" x="495" y="502">10 Tables (tg-*)</text>
+      <text class="node-sublabel" x="495" y="502">11 Tables (tg-*)</text>
     </g>
 
     <!-- S3 -->
@@ -494,7 +494,7 @@ svg.diagram {
       <rect class="node-box" x="600" y="450" width="120" height="55" fill="rgba(239,68,68,0.1)" stroke="rgba(239,68,68,0.5)"/>
       <text class="node-icon" x="660" y="472">&#x26A1;</text>
       <text class="node-label" x="660" y="490">ElastiCache Redis</text>
-      <text class="node-sublabel" x="660" y="502">Hot Cache</text>
+      <text class="node-sublabel" x="660" y="502">Shared Control State</text>
     </g>
 
     <!-- ===== DECISION PHASE ===== -->
@@ -545,7 +545,7 @@ svg.diagram {
     <g class="node" data-id="sqs" data-phase="enforcement" onclick="showInfo('sqs')">
       <rect class="node-box" x="970" y="240" width="160" height="55" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.5)"/>
       <text class="node-icon" x="1050" y="262">&#x1F4E8;</text>
-      <text class="node-label" x="1050" y="280">SQS + SNS/SES</text>
+      <text class="node-label" x="1050" y="280">SQS Notifications</text>
       <text class="node-sublabel" x="1050" y="292">Notifications</text>
     </g>
 
@@ -561,8 +561,8 @@ svg.diagram {
     <g class="node" data-id="audit" data-phase="enforcement" onclick="showInfo('audit')">
       <rect class="node-box" x="970" y="440" width="160" height="55" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.5)"/>
       <text class="node-icon" x="1050" y="462">&#x1F4DC;</text>
-      <text class="node-label" x="1050" y="480">Immutable Audit Log</text>
-      <text class="node-sublabel" x="1050" y="492">7+ Year Retention</text>
+      <text class="node-label" x="1050" y="480">Audit Records</text>
+      <text class="node-sublabel" x="1050" y="492">DynamoDB + S3</text>
     </g>
 
     <!-- WebSocket (Dashboard) -->
@@ -605,7 +605,7 @@ svg.diagram {
       <rect class="node-box" x="180" y="580" width="160" height="55" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.5)"/>
       <text class="node-icon" x="260" y="602">&#x1F310;</text>
       <text class="node-label" x="260" y="620">API Gateway (REST)</text>
-      <text class="node-sublabel" x="260" y="632">Cognito Auth + MFA</text>
+      <text class="node-sublabel" x="260" y="632">Cognito JWT Auth</text>
     </g>
 
     <!-- Cognito -->
@@ -613,7 +613,7 @@ svg.diagram {
       <rect class="node-box" x="40" y="520" width="130" height="50" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.5)"/>
       <text class="node-icon" x="105" y="542">&#x1F512;</text>
       <text class="node-label" x="105" y="557">Cognito</text>
-      <text class="node-sublabel" x="105" y="567">User Pools + MFA</text>
+      <text class="node-sublabel" x="105" y="567">Optional MFA</text>
     </g>
 
     <!-- CloudWatch -->
@@ -668,91 +668,91 @@ const nodeInfo = {
     service: 'EventBridge',
     agent: false,
     desc: 'Receives profile lifecycle events — new account creation, photo uploads, bio updates. Routes events to the Profile Processor for cross-platform blocklist screening.',
-    why: 'Why EventBridge: Decouples the platform events from SafetyAgent processing. Schema registry validates event shapes, and rules precisely route only safety-relevant events.'
+    why: 'Why EventBridge: Decouples platform events from SafetyAgent processing and routes profile-creation events to the profile processor.'
   },
   'profile-processor': {
     title: 'Profile Creation Processor',
     service: 'Lambda',
     agent: true,
     desc: 'Autonomous agent that screens new profiles against the Partner Network cross-platform blocklist. Checks device fingerprints and behavioral signatures via SHA-256 hashed identifiers (never raw PII).',
-    why: 'Why Agent: Autonomously blocks known bad actors at signup with 95%+ confidence. Prevents banned users from other platforms from creating app accounts.'
+    why: 'Why Agent: A configured score of 0.95 or higher follows the autonomous enforcement branch; lower-confidence matches are routed for investigation.'
   },
-  'sagemaker': {
-    title: 'Amazon SageMaker',
-    service: 'SageMaker',
+  'anomaly-scoring': {
+    title: 'Rule-based Anomaly Scoring',
+    service: 'Lambda',
     agent: false,
-    desc: 'Hosts the trained anomaly detection model that scores user behavioral patterns. Evaluates message velocity, response asymmetry, time-of-day patterns, and profile interaction graphs.',
-    why: 'Why SageMaker: Purpose-built ML inference endpoint with auto-scaling. Model trained on historical trust & safety data with custom features specific to dating app abuse patterns.'
+    desc: 'Calculates an anomaly score from message velocity, response rate, profile views, match acceptance, account age, and recent reports.',
+    why: 'Why rules: The sample keeps scoring deterministic and inspectable. Adopters can validate and replace it with an approved model if required.'
   },
   'intel': {
     title: 'Partner Network Intelligence API',
-    service: 'External (mTLS)',
+    service: 'External HTTPS API',
     agent: false,
-    desc: 'Cross-platform intelligence sharing across partner platforms. Exchanges only hashed device fingerprints and behavioral signatures — never raw PII.',
-    why: 'Why mTLS: Zero-trust security for cross-platform data exchange. Mutual TLS ensures both parties are authenticated. Only SHA-256 hashes are exchanged for privacy compliance (GDPR/CCPA).'
+    desc: 'Cross-platform intelligence sharing through a configured HTTPS endpoint. The sample sends privacy-safe identifiers, but does not implement partner authentication.',
+    why: 'Production requirement: Add platform-approved authentication, authorization, data minimization, and partner trust controls before connecting a real endpoint.'
   },
   'stepfunctions': {
     title: 'AWS Step Functions — Investigation Workflow',
     service: 'Step Functions',
     agent: true,
     desc: 'The central orchestrator agent that coordinates the entire investigation pipeline. Runs evidence gathering, content analysis, confidence scoring, and routing in a defined sequence with parallel branches and automatic retries.',
-    why: 'Why Step Functions: Visual workflow with built-in error handling, retries, and timeouts. Evidence gathering steps run in parallel for speed (must complete in <60s). The state machine IS the agent loop.'
+    why: 'Why Step Functions: Visual workflow with built-in error handling, retries, timeouts, and explicit human-review branches.'
   },
   'evidence': {
     title: 'Evidence Assembler Agent',
     service: 'Lambda',
     agent: true,
-    desc: 'Gathers all relevant evidence for a case: user messages, profile photos, report history, device metadata, interaction patterns. Packages evidence for analysis and stores in S3.',
-    why: 'Why Agent: Autonomously decides which evidence types to collect based on the trigger source. A scam report triggers message history analysis; a fake profile report triggers image analysis.'
+    desc: 'Fetches profile metadata, recent messages, and report history from configured platform APIs. It applies deterministic message checks, records unavailable sources, and stores the evidence package in S3.',
+    why: 'Why Agent: Evidence gathering is parallel, bounded by timeouts, and tolerant of unavailable upstream sources. Production integrations still require authentication and data-governance review.'
   },
   'bedrock': {
     title: 'Amazon Bedrock (Claude)',
     service: 'Bedrock',
     agent: true,
-    desc: 'The AI reasoning agent that performs deep content analysis — detecting scam patterns, harassment language, threat indicators, crisis signals, and AI-generated profile photos. Returns structured violation assessments.',
-    why: 'Why Bedrock/Claude: Best-in-class natural language understanding for nuanced content moderation. Detects subtle scam language, coded threats, and grooming patterns that keyword matching misses.'
+    desc: 'Optional sentiment analysis for message samples. Deterministic keyword checks still detect configured scam, threat, and crisis indicators when no Bedrock model is configured.',
+    why: 'Why Bedrock: A managed model can enrich sentiment signals without hosting model infrastructure. The sample makes it opt-in and does not claim production model quality, safety, or coverage.'
   },
   'confidence': {
     title: 'Confidence Calculator Agent',
     service: 'Lambda',
     agent: true,
-    desc: 'Synthesizes all evidence signals into weighted confidence scores per violation type. Uses configurable weights for message analysis (25%), image analysis (15%), behavioral signals (20%), and cross-platform data (30%).',
-    why: 'Why Agent: Makes the critical judgment call — is this 90% scam or 60% scam? The weights are tunable via the config table, and the feedback loop adjusts them based on human reviewer corrections.'
+    desc: 'Calculates deterministic confidence scores from message indicators, image-analysis fields when supplied, blocklist matches, and prior reports.',
+    why: 'Why Agent: It converts the available evidence into explicit violation scores used by the policy workflow. Adopters must evaluate and calibrate these rules for their own domain.'
   },
   'dynamodb': {
     title: 'Amazon DynamoDB',
     service: 'DynamoDB',
     agent: false,
-    desc: '10 tables prefixed tg-*: cases, evidence metadata, audit logs, blocklist, config, review queue, metrics, reviewer state, anomaly scores, appeals. All encrypted at rest with point-in-time recovery.',
-    why: 'Why DynamoDB: Single-digit millisecond latency for operational data at any scale. Pay-per-request billing means zero cost when idle (dev) and auto-scales under load (prod). GSIs enable efficient queries by user, status, and time.'
+    desc: '11 tables prefixed tg-*: cases, evidence metadata, audit logs, blocklist, config, review queue, metrics, reviewer state, WebSocket connections, anomaly scores, and appeals. They use DynamoDB encryption at rest and point-in-time recovery.',
+    why: 'Why DynamoDB: Pay-per-request capacity avoids provisioned throughput planning, while GSIs support queries by user, status, and time. Storage and other service charges still apply.'
   },
   's3': {
     title: 'Amazon S3',
     service: 'S3',
     agent: false,
-    desc: 'Three buckets: evidence packages (raw messages, screenshots), audit archives (7+ year retention for compliance), and config backups. Evidence is encrypted with KMS customer-managed keys.',
-    why: 'Why S3: Cost-effective bulk storage with lifecycle policies. Evidence moves to Glacier after 90 days. Audit archives use Object Lock (WORM) for legal compliance — even admins cannot delete.'
+    desc: 'Five private buckets hold evidence packages, audit archives, configuration backups, frontend assets, and S3 access logs. Public access is blocked, versioning is enabled, and CloudFront uses origin access control.',
+    why: 'Why S3: Cost-effective bulk storage with lifecycle policies. Evidence and audit archives transition to colder storage according to the template.'
   },
   'redis': {
     title: 'Amazon ElastiCache Redis',
     service: 'ElastiCache',
     agent: false,
-    desc: 'Hot data cache for rate limit counters, anomaly score cache (15-min staleness), WebSocket session state, and config cache. Sub-millisecond reads for the dashboard and rate limiter.',
-    why: 'Why Redis: Rate limiting requires atomic counters with TTL. Anomaly scores are read on every behavioral event — caching avoids DynamoDB hot partition issues. WebSocket connection tracking needs in-memory speed.'
+    desc: 'Optional shared state for distributed rate limits, circuit breakers, and short-lived counters. WebSocket connections are stored in DynamoDB rather than Redis.',
+    why: 'Why Redis: Rate limiting and circuit breakers need atomic, expiring state shared across Lambda execution environments.'
   },
   'policy': {
     title: 'Policy Engine — Decision Agent',
     service: 'Lambda',
     agent: true,
     desc: 'The autonomous decision-making agent. Routes cases based on confidence thresholds: permanent ban requires 90%, temp restriction requires 75%. Sensitive categories (self-harm, child safety) always escalate regardless of confidence.',
-    why: 'Why Agent: This is the core autonomous decision-maker. It applies configurable policy rules to determine enforcement without human intervention for the majority of cases. The remaining 20-30% escalate to human review.'
+    why: 'Why Agent: It applies configurable policy rules and routes sensitive categories or scores below the configured threshold to human review.'
   },
   'crisis': {
     title: 'Crisis Response Service',
     service: 'Lambda',
     agent: false,
-    desc: 'Handles cases involving self-harm, potential illegal activity, or child safety. Sends wellbeing resources to victims within 5 minutes. Victims in crisis are NEVER autonomously banned.',
-    why: 'Why dedicated service: Legal and ethical requirement. Crisis cases need specialized handling — connecting users to suicide prevention hotlines, mandatory reporting for child safety, law enforcement notification.'
+    desc: 'Escalates configured sensitive categories and queues localized wellbeing resources when the affected user is identified as a victim. Victim cases are not autonomously banned.',
+    why: 'Production requirement: Validate resources, localization, escalation policy, and any reporting obligations with qualified legal and safety teams.'
   },
   'review': {
     title: 'Human Review Queue',
@@ -765,22 +765,22 @@ const nodeInfo = {
     title: 'Reviewer Wellbeing Monitor',
     service: 'Lambda + DynamoDB',
     agent: false,
-    desc: 'Tracks reviewer exposure to disturbing content (graphic images, self-harm, CSAM). Enforces mandatory breaks, rotation schedules, and exposure limits. Alerts team leads when thresholds approach.',
-    why: 'Why this exists: Content moderator burnout and PTSD are well-documented. This service protects the humans who handle the cases the AI cannot. It is an ethical obligation, not a feature.'
+    desc: 'Tracks reviewer exposure counts, identifies when configured thresholds are reached, suggests breaks, and can distribute critical cases toward lower-exposure reviewers.',
+    why: 'Why this exists: Reviewer wellbeing needs explicit operational controls. Adopters must integrate these signals with their staffing, support, and escalation processes.'
   },
   'enforcement': {
     title: 'Enforcement Engine Agent',
     service: 'Lambda',
     agent: true,
-    desc: 'Executes enforcement actions: warnings, content removal, rate limiting, temporary suspension, permanent ban. Calls the the platform API, queues user notifications, and writes immutable audit logs.',
-    why: 'Why Agent: Autonomously executes enforcement within 15 minutes of detection. Handles the full lifecycle — action execution, notification, audit logging, and blocklist updates for cross-platform sharing.'
+    desc: 'Executes configured enforcement actions through the platform API, queues user notifications, and writes audit records.',
+    why: 'Why Agent: Handles action execution, notification queuing, audit logging, and blocklist updates after the policy workflow selects an autonomous path.'
   },
   'sqs': {
-    title: 'Amazon SQS + SNS/SES',
-    service: 'SQS / SNS / SES',
+    title: 'Amazon SQS Notifications',
+    service: 'SQS',
     agent: false,
-    desc: 'Async notification pipeline. SQS decouples enforcement from notification delivery. SNS fans out to multiple channels. SES sends email notifications to affected users with appeal instructions.',
-    why: 'Why SQS: Enforcement must not block on notification delivery. If email is slow or fails, the ban still takes effect immediately. Dead-letter queue captures failed notifications for retry.'
+    desc: 'Async notification pipeline. Producers queue formatted channel requests, and the notification processor posts each request to the configured Platform User API.',
+    why: 'Why SQS: Enforcement does not block on notification delivery. Partial batch failure reporting and a dead-letter queue provide bounded retries.'
   },
   'platform-api': {
     title: 'Platform API',
@@ -790,46 +790,46 @@ const nodeInfo = {
     why: 'Why external call: SafetyAgent is a safety orchestration layer, not the platform itself. It decides and instructs; the platform executes. This separation allows SafetyAgent to serve multiple apps.'
   },
   'audit': {
-    title: 'Immutable Audit Log',
-    service: 'DynamoDB + S3 (Object Lock)',
+    title: 'Audit Records',
+    service: 'DynamoDB + S3',
     agent: false,
-    desc: 'Every enforcement action, human decision, and system event is logged immutably. No application-level updates or deletes allowed. Enforcement halts entirely if audit logging fails (AC-6.9).',
-    why: 'Why immutable: Legal discovery, regulatory compliance, and appeal evidence. If a user challenges a ban, the full decision chain is preserved. 7+ year retention meets GDPR right-to-access requirements.'
+    desc: 'Enforcement actions, human decisions, and system events are written to DynamoDB and S3-backed audit storage. The sample does not configure S3 Object Lock or WORM retention.',
+    why: 'Production requirement: Define retention and legal-hold requirements, restrict mutation paths, and add immutable storage controls where policy requires them.'
   },
   'websocket': {
     title: 'WebSocket API Gateway',
     service: 'API Gateway v2',
     agent: false,
-    desc: 'Pushes real-time updates to the ops dashboard — new cases, enforcement actions, metric changes, queue status. Enables the <30-second metric staleness SLA.',
-    why: 'Why WebSocket: The dashboard needs sub-second updates for the operations team. Polling would add 30s latency and unnecessary API load. WebSocket enables instant case-status push notifications.'
+    desc: 'Pushes metrics and queue-status updates to connected dashboard clients. Connection records are stored in DynamoDB with a two-hour TTL.',
+    why: 'Why WebSocket: Server-initiated updates reduce polling and keep the operations view current while clients are connected.'
   },
   'apigw': {
     title: 'Amazon API Gateway (REST)',
     service: 'API Gateway',
     agent: false,
-    desc: 'REST API serving the ops dashboard and external integrations. Cognito authorizer with role-based access: Admin (MFA required), Operator, Reviewer, System, and User (appeals only).',
-    why: 'Why API Gateway: Managed, scalable API with built-in throttling, WAF integration, and Cognito auth. Request validation catches malformed payloads before they hit Lambda. X-Ray tracing for debugging.'
+    desc: 'REST API serving the ops dashboard. Protected routes use a Cognito authorizer; login, health, and metrics routes are public in the sample. Application roles are not enforced.',
+    why: 'Why API Gateway: Managed API routing, Cognito integration, CORS controls, and X-Ray tracing. Production deployments still need application authorization, request validation, and edge protection.'
   },
   'cognito': {
     title: 'Amazon Cognito',
     service: 'Cognito',
     agent: false,
-    desc: 'User pool for SafetyAgent operators and reviewers. Admin-only account creation, optional MFA (required for config changes), role-based access via custom attributes.',
-    why: 'Why Cognito: Managed auth with MFA, password policies, and JWT tokens. No need to build custom auth for an internal operations tool. Integrates natively with API Gateway authorizers.'
+    desc: 'User pool for SafetyAgent operators and reviewers with administrator-created accounts, password policies, JWT tokens, and optional software-token MFA.',
+    why: 'Why Cognito: Managed authentication integrates with API Gateway authorizers. The sample does not enforce role or MFA claims inside handlers.'
   },
   'cloudwatch': {
     title: 'CloudWatch + X-Ray',
     service: 'CloudWatch',
     agent: false,
-    desc: 'Full observability: custom metrics dashboard, Lambda function logs, distributed tracing via X-Ray, anomaly detection alarms, and automated incident alerts.',
-    why: 'Why CloudWatch: Native integration with every AWS service in the stack. Custom dashboard tracks autonomous resolution rate, p99 latencies, queue depth, and reviewer workload in real-time.'
+    desc: 'Provides Lambda logs, X-Ray tracing, service metrics, a stack dashboard, and alarms for selected errors and queue conditions.',
+    why: 'Why CloudWatch: Native AWS service integration keeps operational signals and deployment alarms in one place.'
   }
 };
 
 // ===== NARRATION STEPS =====
 const narrationSteps = [
   {
-    text: "Welcome to SafetyAgent — an autonomous Trust and Safety system built for the app, protecting millions of users. Let me walk you through how it works, from detection to enforcement.",
+    text: "Welcome to SafetyAgent, an open-source Trust and Safety orchestration reference. This walkthrough follows the implemented sample from detection to enforcement and calls out external integration points.",
     highlight: [],
     phase: 'all',
     duration: 9000
@@ -842,7 +842,7 @@ const narrationSteps = [
   },
   {
     text: "The Behavioral Processor agent consumes these events and calculates anomaly scores. It evaluates message velocity, response rates, and patterns. When a user sends 50 messages per hour with near-zero responses — that's a red flag.",
-    highlight: ['behavioral-processor', 'sagemaker'],
+    highlight: ['behavioral-processor', 'anomaly-scoring'],
     phase: 'detection',
     duration: 11000
   },
@@ -859,55 +859,55 @@ const narrationSteps = [
     duration: 10000
   },
   {
-    text: "The Evidence Assembler agent gathers all relevant data — messages, photos, report history, device metadata. Meanwhile, Amazon Bedrock with Claude performs deep content analysis, detecting scam language, coded threats, and grooming patterns that simple keyword matching would miss.",
+    text: "The Evidence Assembler fetches profile metadata, recent messages, and report history from configured platform APIs. Deterministic checks identify configured scam, threat, and crisis terms, while an optional Bedrock model can add sentiment analysis.",
     highlight: ['evidence', 'bedrock'],
     phase: 'investigation',
     duration: 12000
   },
   {
-    text: "The Confidence Calculator agent then synthesizes all signals into weighted scores. Message analysis contributes 25%, image analysis 15%, behavioral signals 20%, and cross-platform intel 30%. A permanent ban requires 90% confidence.",
+    text: "The Confidence Calculator converts available evidence into explicit violation scores using inspectable rules. The policy workflow then compares those scores with configured thresholds and routes uncertain or sensitive cases to human review.",
     highlight: ['confidence'],
     phase: 'investigation',
     duration: 11000
   },
   {
-    text: "All operational data lives in DynamoDB — 10 tables with sub-millisecond access. Evidence packages are stored in S3 with encryption. Redis provides the hot cache layer for rate limiting and real-time dashboard queries.",
+    text: "Operational data is stored across 11 DynamoDB tables, and evidence packages are stored in encrypted S3 buckets. Optional Redis state supports distributed rate limits, circuit breakers, and short-lived counters; WebSocket connections remain in DynamoDB.",
     highlight: ['dynamodb', 's3', 'redis'],
     phase: 'investigation',
     duration: 10000
   },
   {
-    text: "Now the critical moment — the Policy Engine, our decision agent. It applies configurable thresholds: 90% for permanent bans, 75% for temporary restrictions. This agent autonomously resolves the majority of cases without human intervention.",
+    text: "The Policy Engine applies configured thresholds and safety rules. Only explicitly eligible high-confidence cases follow an autonomous enforcement branch; low-confidence, ambiguous, and sensitive cases route to human review.",
     highlight: ['policy'],
     phase: 'decision',
     duration: 11000
   },
   {
-    text: "But there are hard lines. Cases involving self-harm, child safety, or illegal activity ALWAYS escalate to human review, regardless of confidence. The Crisis Response service sends wellbeing resources to victims within 5 minutes. Victims in crisis are never autonomously banned.",
+    text: "Sensitive categories such as self-harm, child safety, or illegal activity route to human review regardless of confidence. The Crisis Response service can queue localized wellbeing resources, and victim cases are not autonomously banned.",
     highlight: ['crisis', 'review'],
     phase: 'decision',
     duration: 13000
   },
   {
-    text: "We also protect the humans in the loop. The Wellbeing Monitor tracks reviewer exposure to disturbing content and enforces mandatory breaks. Content moderator burnout is a documented problem — this is an ethical safeguard, not a feature.",
+    text: "The Wellbeing Monitor tracks reviewer exposure, flags configured thresholds, suggests breaks, and helps route critical cases toward reviewers with lower recent exposure.",
     highlight: ['wellbeing'],
     phase: 'decision',
     duration: 10000
   },
   {
-    text: "Finally, the Enforcement Engine agent executes actions — warnings, content removal, rate limits, suspensions, or permanent bans. It calls the Platform API, queues notifications via SQS, and writes an immutable audit log. Every action is traceable for 7-plus years.",
+    text: "Finally, the Enforcement Engine executes configured actions through the Platform API, queues notifications through SQS, and writes audit records to DynamoDB.",
     highlight: ['enforcement', 'sqs', 'platform-api', 'audit'],
     phase: 'enforcement',
     duration: 12000
   },
   {
-    text: "Real-time updates push to the operations dashboard via WebSocket, keeping the team informed with under 30 seconds of metric staleness. The entire pipeline — detection to enforcement — completes in under 15 minutes.",
+    text: "Metrics and queue updates can push to connected dashboard clients through the WebSocket API, reducing the need for polling.",
     highlight: ['websocket'],
     phase: 'enforcement',
     duration: 10000
   },
   {
-    text: "That's SafetyAgent. Seven autonomous agents orchestrated by Step Functions, powered by 14 AWS services, achieving high autonomous resolution rates — and always knowing when to ask a human for help — and always knowing when to ask a human for help.",
+    text: "That's SafetyAgent: a serverless reference implementation with explicit policy routing, human-review branches, and replaceable platform integrations.",
     highlight: [],
     phase: 'all',
     duration: 11000
@@ -918,29 +918,26 @@ const narrationSteps = [
 let isPlaying = false;
 let currentStep = 0;
 let narrationTimeout = null;
-let audioElement = null;
+let currentUtterance = null;
 let bgm = new BGMEngine();
 
-// ===== POLLY PRE-GENERATED AUDIO =====
+// ===== BROWSER NARRATION =====
 async function speakText(text) {
   return new Promise((resolve) => {
-    const stepIndex = currentStep.toString().padStart(2, '0');
-    const audioSrc = `/narration/step-${stepIndex}.mp3`;
-
-    if (audioElement) {
-      audioElement.pause();
-      audioElement.currentTime = 0;
+    if (!('speechSynthesis' in window)) {
+      narrationTimeout = setTimeout(
+        resolve,
+        narrationSteps[currentStep]?.duration || 5000
+      );
+      return;
     }
 
-    audioElement = new Audio(audioSrc);
-    audioElement.onended = resolve;
-    audioElement.onerror = () => {
-      console.warn('Audio file not found, advancing after timeout');
-      setTimeout(resolve, narrationSteps[currentStep]?.duration || 5000);
-    };
-    audioElement.play().catch(() => {
-      setTimeout(resolve, narrationSteps[currentStep]?.duration || 5000);
-    });
+    window.speechSynthesis.cancel();
+    currentUtterance = new SpeechSynthesisUtterance(text);
+    currentUtterance.rate = 1;
+    currentUtterance.onend = resolve;
+    currentUtterance.onerror = resolve;
+    window.speechSynthesis.speak(currentUtterance);
   });
 }
 
@@ -975,7 +972,8 @@ function stopNarration() {
   btn.classList.remove('playing');
   document.getElementById('narrationBar').classList.remove('visible');
   if (narrationTimeout) clearTimeout(narrationTimeout);
-  if (audioElement) audioElement.pause();
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  currentUtterance = null;
 
   // Fade out background music
   bgm.fadeOut(1.5);

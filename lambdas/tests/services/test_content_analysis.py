@@ -3,6 +3,14 @@ from unittest.mock import patch
 from services import content_analysis_service as svc
 
 
+@patch("services.content_analysis_service.boto3.client")
+def test_bedrock_is_skipped_when_no_model_is_configured(mock_client, monkeypatch):
+    monkeypatch.setattr(svc, "BEDROCK_MODEL_ID", "")
+
+    assert svc._invoke_bedrock("test prompt") == {}
+    mock_client.assert_not_called()
+
+
 class TestDetectScamPatterns:
     def test_no_scam(self):
         assert svc.detect_scam_patterns("Hello, how are you?") == []

@@ -386,19 +386,13 @@ function route(method, url, body) {
   // Auth
   if (method === 'POST' && url === '/api/v1/auth/login') {
     const { email, password } = body || {}
-    if (email === 'admin@example.com' && password === 'demo-password') {
-      return {
-        token: `demo-jwt-${uid().slice(0, 24)}`,
-        user_id: 'usr-admin-001',
-        email,
-        role: 'admin',
-      }
+    if (!email || !password) {
+      return null
     }
-    // Accept any credentials for demo flexibility
     return {
       token: `demo-jwt-${uid().slice(0, 24)}`,
-      user_id: `usr-${uid().slice(0, 8)}`,
-      email: email || 'demo@example.com',
+      user_id: 'usr-admin-001',
+      email,
       role: 'admin',
     }
   }
@@ -564,8 +558,7 @@ server.listen(PORT, () => {
   console.log('  ║   SafetyAgent Mock API Server                ║')
   console.log(`  ║   http://localhost:${PORT}/api/v1              ║`)
   console.log('  ║                                              ║')
-  console.log('  ║   Login: admin@example.com           ║')
-  console.log('  ║   Pass:  demo-password                     ║')
+  console.log('  ║   Use any non-empty local credentials       ║')
   console.log('  ║                                              ║')
   console.log('  ║   Data refreshes every 10s to simulate       ║')
   console.log('  ║   a live pipeline. Press Ctrl+C to stop.     ║')

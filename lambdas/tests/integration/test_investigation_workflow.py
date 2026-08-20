@@ -93,7 +93,7 @@ class TestFullPipelineAutonomousResolution:
     @patch("services.enforcement_engine_service.blocklist_repository")
     @patch("services.enforcement_engine_service.case_repository")
     @patch("services.enforcement_engine_service.appeal_repository")
-    @patch("services.enforcement_engine_service._queue_notification")
+    @patch("services.enforcement_engine_service.notification_service")
     @patch("services.enforcement_engine_service._call_platform_enforcement")
     @patch("services.enforcement_engine_service.audit_repository")
     def test_full_pipeline_autonomous_resolution(
@@ -110,6 +110,10 @@ class TestFullPipelineAutonomousResolution:
         mock_enf_audit.write_log.return_value = "audit-auto-001"
         mock_platform.return_value = {"status": "ok"}
         mock_appeal.create_enforcement_appeal_record.return_value = "appeal-auto-001"
+        mock_notify.send_enforcement_notification.return_value = {
+            "in_app_message_id": "message-in-app",
+            "email_message_id": "message-email",
+        }
 
         evidence = _high_confidence_scam_evidence()
 

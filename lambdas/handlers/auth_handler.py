@@ -4,6 +4,8 @@ import os
 
 import boto3
 
+from handlers.http_response import response_headers
+
 logger = logging.getLogger(__name__)
 
 cognito = boto3.client("cognito-idp")
@@ -40,8 +42,6 @@ def lambda_handler(event, context):
 
         return _response(200, {
             "token": id_token,
-            "access_token": tokens.get("AccessToken"),
-            "refresh_token": tokens.get("RefreshToken"),
             "user_id": attrs.get("sub", ""),
             "email": email,
             "role": attrs.get("custom:role", "operator"),
@@ -59,6 +59,6 @@ def lambda_handler(event, context):
 def _response(status_code, body):
     return {
         "statusCode": status_code,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+        "headers": response_headers(),
         "body": json.dumps(body, default=str),
     }

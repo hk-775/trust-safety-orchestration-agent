@@ -98,6 +98,36 @@ class TestExecuteBulk:
             attack_pattern="coordinated_spam",
         )
 
+    @patch("handlers.enforcement_handler.enforcement_engine_service")
+    def test_execute_bulk_from_step_functions(self, mock_service, lambda_context):
+        mock_service.execute_bulk_action.return_value = {
+            "case_id": "case-bulk-step-functions",
+            "total_users": 2,
+            "succeeded": 2,
+            "failed": 0,
+        }
+
+        result = lambda_handler(
+            {
+                "case_id": "case-bulk-step-functions",
+                "user_ids": ["user-1", "user-2"],
+                "action": "rate_limit",
+                "violation_type": "bot_farm",
+                "attack_pattern": "ip_range=192.0.2.0/24",
+                "is_bulk": True,
+            },
+            lambda_context,
+        )
+
+        assert result["statusCode"] == 200
+        mock_service.execute_bulk_action.assert_called_once_with(
+            case_id="case-bulk-step-functions",
+            user_ids=["user-1", "user-2"],
+            action="rate_limit",
+            violation_type="bot_farm",
+            attack_pattern="ip_range=192.0.2.0/24",
+        )
+
     def test_execute_bulk_too_many_users(self, api_gateway_event, lambda_context):
         user_ids = [f"user-{i}" for i in range(501)]
 

@@ -4,22 +4,29 @@ Continuously generates realistic Trust & Safety events that flow through
 the pipeline, creating cases, audit logs, anomaly scores, and review queue
 items to make the dashboard feel alive during a demo.
 
-Run: python3 scripts/live_simulator.py
+Run: uv run python scripts/live_simulator.py --env dev --region us-east-1
 Stop: Ctrl+C
 """
 
-import boto3
+import argparse
 import json
-import uuid
 import random
 import time
-import threading
+import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-dynamodb = boto3.resource("dynamodb", region_name="us-west-2")
+import boto3
 
-ENV = "dev"
+parser = argparse.ArgumentParser(description="Generate non-production demo activity")
+parser.add_argument("--env", choices=["dev", "staging"], default="dev")
+parser.add_argument("--region", default=None, help="AWS region (default: active AWS configuration)")
+args = parser.parse_args()
+
+session = boto3.Session(region_name=args.region)
+dynamodb = session.resource("dynamodb")
+
+ENV = args.env
 cases_table = dynamodb.Table(f"tg-cases-{ENV}")
 audit_table = dynamodb.Table(f"tg-audit-logs-{ENV}")
 review_queue_table = dynamodb.Table(f"tg-review-queue-{ENV}")
@@ -296,6 +303,8 @@ def update_aggregate_metrics():
 def run_simulation():
     print("=" * 60)
     print("  SafetyAgent Live Demo Simulator")
+    print(f"  Environment: {ENV}")
+    print(f"  Region: {session.region_name}")
     print("  Press Ctrl+C to stop")
     print("=" * 60)
     print()

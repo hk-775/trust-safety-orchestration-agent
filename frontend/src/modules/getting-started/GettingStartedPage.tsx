@@ -1,18 +1,29 @@
-const steps = [
+interface DeploymentStep {
+  number: string
+  title: string
+  content?: string[]
+  code?: string
+  description?: string
+  afterDescription?: string
+  afterCode?: string
+  note?: string
+}
+
+const steps: DeploymentStep[] = [
   {
     number: '1',
     title: 'Prerequisites',
     content: [
       'AWS CLI v2 configured with credentials',
-      'AWS SAM CLI v1.90+',
-      'uv (auto-installed by setup.sh if missing)',
-      'Node.js 20+ and npm',
+      'AWS SAM CLI',
+      'uv',
+      'Node.js 20.19+, 22.12+, or a newer major release',
     ],
   },
   {
     number: '2',
     title: 'Clone the repository',
-    code: `git clone https://github.com/aws-samples/sample-trust-safety-orchestration-agent.git
+    code: `git clone https://github.com/hk-775/trust-safety-orchestration-agent.git
 cd trust-safety-orchestration-agent`,
   },
   {
@@ -22,48 +33,28 @@ cd trust-safety-orchestration-agent`,
   },
   {
     number: '4',
-    title: 'Deploy the backend',
-    description: 'For staging/dev (no VPC or Redis — faster deploy):',
-    code: 'sam deploy --guided --parameter-overrides "UseRedis=false Environment=dev"',
-    note: 'Save the outputs printed at the end — you will need RestApiUrl, WebSocketUrl, FrontendBucketName, and CloudFrontDistributionId.',
+    title: 'Deploy a seeded development stack',
+    description: 'The deployment script configures and publishes the frontend from stack outputs:',
+    code: `read -r -s -p "Demo admin password: " DEMO_ADMIN_PASSWORD
+printf '\\n'
+export DEMO_ADMIN_PASSWORD
+make quickstart
+unset DEMO_ADMIN_PASSWORD`,
+    note: 'The command prints the API, WebSocket, and CloudFront URLs after health checks pass.',
   },
   {
     number: '5',
-    title: 'Configure the frontend',
-    description: 'From the project root:',
-    code: `cd frontend
-cp .env.example .env.production`,
-    afterDescription: 'Edit .env.production and set the values from your SAM deploy outputs:',
-    afterCode: `VITE_API_BASE_URL=https://<your-api-id>.execute-api.<region>.amazonaws.com/<env>/api/v1
-VITE_WS_URL=wss://<your-ws-id>.execute-api.<region>.amazonaws.com/<env>`,
+    title: 'Deploy another environment',
+    code: `make deploy \\
+  ENVIRONMENT=staging \\
+  STACK_NAME=trust-safety-orch-staging \\
+  USE_REDIS=false`,
+    note: 'Use DEPLOY_FRONTEND=false for a backend-only deployment.',
   },
   {
     number: '6',
-    title: 'Build and deploy the frontend',
-    code: `npm run build
-aws s3 sync dist/ s3://<your-frontend-bucket>/ --delete
-aws cloudfront create-invalidation --distribution-id <your-distribution-id> --paths "/*"`,
-  },
-  {
-    number: '7',
-    title: 'Create a login user',
-    description: 'Create an admin user in your Cognito User Pool:',
-    code: `aws cognito-idp admin-create-user \\
-  --user-pool-id <your-user-pool-id> \\
-  --username admin \\
-  --user-attributes Name=custom:role,Value=admin \\
-  --temporary-password 'TempPass123!'
-
-aws cognito-idp admin-set-user-password \\
-  --user-pool-id <your-user-pool-id> \\
-  --username admin \\
-  --password 'YourSecurePassword!' \\
-  --permanent`,
-  },
-  {
-    number: '8',
     title: 'Access your app',
-    description: 'Open your CloudFront URL and log in with the credentials you created. The dashboard will display in demo mode until live data flows through Kinesis.',
+    description: 'Open the printed CloudFront URL. Seeded deployments create the admin demo user and dashboard records automatically.',
   },
 ]
 
@@ -120,10 +111,10 @@ export function GettingStartedPage() {
         ))}
       </div>
 
-      <div className="rounded-xl border border-green-200 bg-green-50 p-6">
-        <h3 className="font-semibold text-green-900">Production deployment</h3>
-        <p className="mt-1 text-sm text-green-800">
-          For production, deploy with <code className="rounded bg-green-100 px-1.5 py-0.5 text-xs">UseRedis=true</code> (the default) to include VPC, ElastiCache Redis, and security groups. Set <code className="rounded bg-green-100 px-1.5 py-0.5 text-xs">Environment=prod</code> and configure your platform API URLs when prompted.
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+        <h3 className="font-semibold text-amber-900">Production readiness</h3>
+        <p className="mt-1 text-sm text-amber-800">
+          Direct production deployment is disabled in this sample until upstream authentication and WebSocket authorization are implemented. Use <code className="rounded bg-amber-100 px-1.5 py-0.5 text-xs">prodtest</code> for a deletion-safe topology rehearsal.
         </p>
       </div>
     </div>

@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible problem in the sample
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, account IDs, user data, or live endpoints.
+  - type: input
+    id: revision
+    attributes:
+      label: Revision
+      description: Commit SHA or release tag
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Sanitized environment details
+      description: OS and AWS CLI, SAM CLI, uv, Node.js, and npm versions
+    validations:
+      required: true

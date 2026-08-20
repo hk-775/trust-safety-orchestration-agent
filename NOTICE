@@ -2,3 +2,8 @@ Trust & Safety Orchestration Agent
 Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 Licensed under the MIT-0 License. See LICENSE file.
+
+This repository is a modified version of:
+https://github.com/aws-samples/sample-trust-safety-orchestration-agent
+
+The original and modified files are distributed under the MIT-0 License.

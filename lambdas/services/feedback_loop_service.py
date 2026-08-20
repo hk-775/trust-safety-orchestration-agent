@@ -7,7 +7,7 @@ from repositories.base import get_s3_client, get_bucket_name
 
 logger = logging.getLogger(__name__)
 
-BUCKET_ENV_VAR = "TRUSTGUARD_BUCKET"
+BUCKET_ENV_VAR = "EVIDENCE_BUCKET"
 
 
 def record_decision_feedback(

@@ -1,6 +1,7 @@
 import json
 import logging
 
+from handlers.http_response import response_headers
 from services import audit_service
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,6 @@ def _handle_compliance_report(event):
 def _response(status_code, body):
     return {
         "statusCode": status_code,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+        "headers": response_headers(),
         "body": json.dumps(body, default=str),
     }

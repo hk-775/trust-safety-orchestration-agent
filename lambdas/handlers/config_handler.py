@@ -1,6 +1,7 @@
 import json
 import logging
 
+from handlers.http_response import response_headers
 from repositories import config_repository
 from services import audit_service
 
@@ -101,6 +102,6 @@ def _rollback_config(event):
 def _response(status_code, body):
     return {
         "statusCode": status_code,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+        "headers": response_headers(),
         "body": json.dumps(body, default=str),
     }

@@ -2,6 +2,7 @@ import json
 import logging
 import time
 
+from handlers.http_response import response_headers
 from services import anomaly_detection_service
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,6 @@ def lambda_handler(event, context):
 def _response(status_code, body):
     return {
         "statusCode": status_code,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+        "headers": response_headers(),
         "body": json.dumps(body, default=str),
     }

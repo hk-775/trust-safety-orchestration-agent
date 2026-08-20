@@ -8,7 +8,7 @@ from services import enforcement_engine_service as svc
 class TestExecuteAction:
     @patch("services.enforcement_engine_service.case_repository")
     @patch("services.enforcement_engine_service.appeal_repository")
-    @patch("services.enforcement_engine_service._queue_notification")
+    @patch("services.enforcement_engine_service.notification_service")
     @patch("services.enforcement_engine_service._call_platform_enforcement")
     @patch("services.enforcement_engine_service.audit_repository")
     def test_execute_action_basic(
@@ -18,6 +18,10 @@ class TestExecuteAction:
         mock_audit.write_log.return_value = "audit-001"
         mock_platform.return_value = {"status": "ok"}
         mock_appeal.create_enforcement_appeal_record.return_value = "appeal-001"
+        mock_notify.send_enforcement_notification.return_value = {
+            "in_app_message_id": "message-in-app",
+            "email_message_id": "message-email",
+        }
 
         result = svc.execute_action(
             case_id="CASE-001",
@@ -44,7 +48,12 @@ class TestExecuteAction:
         )
 
         # 4. Notification queued
-        mock_notify.assert_called_once()
+        mock_notify.send_enforcement_notification.assert_called_once_with(
+            user_id="user-123",
+            enforcement_id="CASE-001",
+            violation_type="harassment",
+            action="warning",
+        )
 
         # 5. Case updated to resolved
         mock_case.update_case.assert_called_once()
@@ -61,12 +70,14 @@ class TestExecuteAction:
         assert result["action_status"] == "completed"
         assert result["audit_trail_id"] == "audit-001"
         assert result["appeal_id"] == "appeal-001"
-        assert result["user_notified"] is True
+        assert result["user_notified"] is False
+        assert result["notification_status"] == "queued"
+        assert result["notification_message_ids"] == ["message-in-app", "message-email"]
         assert "response_time_ms" in result
 
     @patch("services.enforcement_engine_service.case_repository")
     @patch("services.enforcement_engine_service.appeal_repository")
-    @patch("services.enforcement_engine_service._queue_notification")
+    @patch("services.enforcement_engine_service.notification_service")
     @patch("services.enforcement_engine_service._call_platform_enforcement")
     @patch("services.enforcement_engine_service.audit_repository")
     @patch("services.enforcement_engine_service.blocklist_repository")
@@ -77,6 +88,10 @@ class TestExecuteAction:
         mock_audit.write_log.return_value = "audit-002"
         mock_platform.return_value = {"status": "ok"}
         mock_appeal.create_enforcement_appeal_record.return_value = "appeal-002"
+        mock_notify.send_enforcement_notification.return_value = {
+            "in_app_message_id": "message-in-app",
+            "email_message_id": "message-email",
+        }
 
         svc.execute_action(
             case_id="CASE-002",
@@ -96,7 +111,7 @@ class TestExecuteAction:
 
     @patch("services.enforcement_engine_service.case_repository")
     @patch("services.enforcement_engine_service.appeal_repository")
-    @patch("services.enforcement_engine_service._queue_notification")
+    @patch("services.enforcement_engine_service.notification_service")
     @patch("services.enforcement_engine_service._call_platform_enforcement")
     @patch("services.enforcement_engine_service.audit_repository")
     def test_execute_action_creates_appeal_record(
@@ -106,6 +121,10 @@ class TestExecuteAction:
         mock_audit.write_log.return_value = "audit-003"
         mock_platform.return_value = {"status": "ok"}
         mock_appeal.create_enforcement_appeal_record.return_value = "appeal-003"
+        mock_notify.send_enforcement_notification.return_value = {
+            "in_app_message_id": "message-in-app",
+            "email_message_id": "message-email",
+        }
 
         result = svc.execute_action(
             case_id="CASE-003",
@@ -219,3 +238,8 @@ class TestPlatformApiCallFormat:
         payload = json.loads(req.data.decode())
         assert payload["action"] == "temporary_suspension"
         assert payload["duration_hours"] == 24
+
+    @patch("services.enforcement_engine_service.PLATFORM_USER_API_URL", "http://api.platform.test/v1")
+    def test_platform_api_rejects_non_https_url(self):
+        with pytest.raises(ValueError, match="must be HTTPS"):
+            svc._call_platform_enforcement("user-abc", "warning")

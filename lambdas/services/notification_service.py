@@ -2,9 +2,10 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+from functools import lru_cache
 
 import boto3
-from functools import lru_cache
+import ulid
 
 from repositories import audit_repository
 
@@ -110,10 +111,13 @@ def _get_queue_url() -> str:
 
 def _send_to_queue(message: dict) -> str:
     """Send a notification message to the SQS queue. Returns the SQS message ID."""
+    payload = {
+        "notification_id": f"NOTIFY-{ulid.new().str}",
+        **message,
+    }
     resp = _get_sqs_client().send_message(
         QueueUrl=_get_queue_url(),
-        MessageBody=json.dumps(message, default=str),
-        MessageGroupId=message.get("user_id", "default"),
+        MessageBody=json.dumps(payload, default=str),
     )
     return resp["MessageId"]
 
@@ -158,7 +162,7 @@ def send_enforcement_notification(
     action: str,
     locale: str = "en",
 ) -> dict:
-    """Queue both in-app and email notifications for an enforcement action.
+    """Queue in-app and email notification requests for an enforcement action.
 
     Returns a dict with the SQS message IDs and audit log ID.
     """
@@ -189,17 +193,17 @@ def send_enforcement_notification(
     email_msg = {**base_payload, "channel": "email"}
     email_id = _send_to_queue(email_msg)
 
-    # Audit log
+    # Audit the queue handoff. Delivery is recorded by NotificationProcessor.
     audit_id = audit_repository.write_log(
-        event_type="notification_sent",
-        action="enforcement_notification",
+        event_type="notification_queued",
+        action="queue_enforcement_notification",
         user_id=user_id,
         violation_type=violation_type,
-        reasoning=f"Enforcement notification sent for action={action}, enforcement_id={enforcement_id}",
+        reasoning=f"Enforcement notification queued for action={action}, enforcement_id={enforcement_id}",
     )
 
     logger.info(
-        "Enforcement notification sent",
+        "Enforcement notification queued",
         extra={
             "user_id": user_id,
             "enforcement_id": enforcement_id,
@@ -220,7 +224,7 @@ def send_appeal_acknowledgment(
     appeal_id: str,
     expected_review_time: str = "24-48 hours",
 ) -> dict:
-    """Send an appeal acknowledgment notification to the user.
+    """Queue an appeal acknowledgment notification request.
 
     Returns a dict with the SQS message ID and audit log ID.
     """
@@ -243,15 +247,15 @@ def send_appeal_acknowledgment(
     sqs_id = _send_to_queue(payload)
 
     audit_id = audit_repository.write_log(
-        event_type="notification_sent",
-        action="appeal_acknowledgment",
+        event_type="notification_queued",
+        action="queue_appeal_acknowledgment",
         user_id=user_id,
-        reasoning=f"Appeal acknowledgment sent for appeal_id={appeal_id}",
+        reasoning=f"Appeal acknowledgment queued for appeal_id={appeal_id}",
     )
 
     logger.info(
-        "Appeal acknowledgment sent",
-        extra={"user_id": user_id, "appeal_id": appeal_id, "sqs_message_id": sqs_id},
+        "Appeal acknowledgment queued",
+        extra={"appeal_id": appeal_id, "sqs_message_id": sqs_id},
     )
 
     return {
@@ -265,7 +269,7 @@ def send_wellbeing_resources(
     crisis_type: str,
     locale: str = "en",
 ) -> dict:
-    """Send wellbeing and crisis resources to a user.
+    """Queue a wellbeing and crisis resource notification request.
 
     Returns a dict with the SQS message ID and audit log ID.
     """
@@ -286,15 +290,15 @@ def send_wellbeing_resources(
     sqs_id = _send_to_queue(payload)
 
     audit_id = audit_repository.write_log(
-        event_type="notification_sent",
-        action="wellbeing_resources",
+        event_type="notification_queued",
+        action="queue_wellbeing_resources",
         user_id=user_id,
-        reasoning=f"Wellbeing resources sent for crisis_type={crisis_type}",
+        reasoning=f"Wellbeing resources queued for crisis_type={crisis_type}",
     )
 
     logger.info(
-        "Wellbeing resources sent",
-        extra={"user_id": user_id, "crisis_type": crisis_type, "sqs_message_id": sqs_id},
+        "Wellbeing resources queued",
+        extra={"crisis_type": crisis_type, "sqs_message_id": sqs_id},
     )
 
     return {

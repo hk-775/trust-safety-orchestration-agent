@@ -1,6 +1,7 @@
 import json
 import logging
 
+from handlers.http_response import response_headers
 from repositories import review_queue_repository, case_repository
 from services import (
     enforcement_engine_service,
@@ -136,6 +137,6 @@ def _check_stale_cases():
 def _response(status_code, body):
     return {
         "statusCode": status_code,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+        "headers": response_headers(),
         "body": json.dumps(body, default=str),
     }

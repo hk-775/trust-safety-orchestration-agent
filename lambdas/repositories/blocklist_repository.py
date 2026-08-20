@@ -4,7 +4,7 @@ from typing import Optional
 
 from boto3.dynamodb.conditions import Key
 
-from .base import get_table
+from .base import get_table, to_dynamodb_types
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def add_bad_actor(
                 "source_platform": source_platform,
                 "ban_reason": ban_reason,
                 "added_at": now,
-                "confidence_score": confidence_score,
+                "confidence_score": to_dynamodb_types(confidence_score),
             }
         )
         batch.put_item(
@@ -39,7 +39,7 @@ def add_bad_actor(
                 "source_platform": source_platform,
                 "ban_reason": ban_reason,
                 "added_at": now,
-                "confidence_score": confidence_score,
+                "confidence_score": to_dynamodb_types(confidence_score),
             }
         )
     logger.info("Bad actor added to blocklist", extra={"source": source_platform})

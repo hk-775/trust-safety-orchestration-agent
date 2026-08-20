@@ -12,7 +12,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     if (mock !== null) return mock as T
   }
 
-  const token = localStorage.getItem('auth_token')
+  const token = sessionStorage.getItem('auth_token')
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

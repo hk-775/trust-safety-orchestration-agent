@@ -160,6 +160,7 @@ def handle_crisis_detection(
         priority="critical",
         escalation_reason=escalation_reason,
         estimated_review_minutes=2,
+        dedupe_key=f"crisis:{case_id}:{crisis_type}:{is_victim}",
     )
 
     # Send wellbeing resources to victims
@@ -187,7 +188,6 @@ def handle_crisis_detection(
         "Crisis detection handled",
         extra={
             "case_id": case_id,
-            "user_id": user_id,
             "crisis_type": crisis_type,
             "is_victim": is_victim,
             "queue_id": queue_id,
@@ -216,7 +216,7 @@ def send_wellbeing_resources(user_id: str, crisis_type: str, locale: str = "en")
 
     logger.info(
         "Wellbeing resources delegated to notification service",
-        extra={"user_id": user_id, "crisis_type": crisis_type},
+        extra={"crisis_type": crisis_type},
     )
 
     return result

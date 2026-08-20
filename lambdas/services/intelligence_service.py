@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timezone
 
 from repositories import blocklist_repository, audit_repository
+from services.http_client import build_https_url
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,10 @@ def ingest_external_intelligence(
             )
             processed += 1
         except Exception as e:
-            logger.error("Failed to ingest bad actor", extra={"error": str(e)})
+            logger.error(
+                "Failed to ingest bad actor",
+                extra={"error_type": type(e).__name__},
+            )
             errors += 1
 
     audit_repository.write_log(
@@ -124,11 +128,12 @@ def publish_bad_actor(
     try:
         import urllib.request
         req = urllib.request.Request(
-            f"{PARTNER_NETWORK_INTEL_API_URL}/intelligence/ingest",
+            build_https_url(PARTNER_NETWORK_INTEL_API_URL, "intelligence", "ingest"),
             data=json.dumps(payload).encode(),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        # build_https_url rejects non-HTTPS schemes before this request.
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310
             result = json.loads(resp.read())
 
         audit_repository.write_log(
@@ -138,12 +143,29 @@ def publish_bad_actor(
             reasoning=f"Published bad actor data to Partner Network partners: {ban_reason}",
         )
 
-        logger.info("Bad actor published", extra={"user_id": user_id})
+        logger.info("Bad actor published")
         return {"published": True, "result": result}
 
+    except ValueError as e:
+        logger.error(
+            "Partner intelligence URL validation failed",
+            extra={"error_type": type(e).__name__},
+        )
+        return {
+            "published": False,
+            "reason": str(e),
+            "queued_for_retry": False,
+        }
     except Exception as e:
-        logger.error("Failed to publish intelligence", extra={"error": str(e)})
-        return {"published": False, "reason": str(e), "queued_for_retry": True}
+        logger.error(
+            "Failed to publish intelligence",
+            extra={"error_type": type(e).__name__},
+        )
+        return {
+            "published": False,
+            "reason": "partner_api_error",
+            "queued_for_retry": True,
+        }
 
 
 def _validate_no_pii(payload: dict) -> None:

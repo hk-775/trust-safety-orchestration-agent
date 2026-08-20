@@ -5,7 +5,7 @@ from typing import Optional
 import ulid
 from boto3.dynamodb.conditions import Key
 
-from .base import get_table
+from .base import get_table, to_dynamodb_types
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def create_appeal(
         "submitted_at": now,
     }
     if supporting_info:
-        item["supporting_info"] = supporting_info
+        item["supporting_info"] = to_dynamodb_types(supporting_info)
     _table().put_item(Item=item)
     logger.info("Appeal created", extra={"appeal_id": item["appeal_id"]})
     return item

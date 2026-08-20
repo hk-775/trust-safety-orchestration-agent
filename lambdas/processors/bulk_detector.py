@@ -76,6 +76,12 @@ def _start_bulk_action(case_id, ip_range, count):
         name=f"bulk-{case_id}",
         input=json.dumps({
             "case_id": case_id,
+            "user_id": f"bulk-{ip_range}",
+            "user_ids": [],
+            "confidence_score": 0.0,
+            "action": "rate_limit",
+            "violation_type": "bot_farm",
+            "attack_pattern": f"ip_range={ip_range};profile_count={count}",
             "ip_range": ip_range,
             "profile_count": count,
             "trigger_source": "bulk_detection",

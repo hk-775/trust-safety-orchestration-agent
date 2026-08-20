@@ -6,7 +6,7 @@ from .base import get_table
 
 logger = logging.getLogger(__name__)
 
-TTL_HOURS = 24
+TTL_HOURS = 2
 
 
 def _table():

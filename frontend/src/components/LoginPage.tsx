@@ -6,8 +6,8 @@ import { mockLogin } from '@/services/mockData'
 export function LoginPage() {
   const navigate = useNavigate()
   const login = useAuthStore((s) => s.login)
-  const [email, setEmail] = useState('admin@safetyagent.example.com')
-  const [password, setPassword] = useState('demo-password')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -16,9 +16,18 @@ export function LoginPage() {
     setLoading(true)
     setError('')
 
+    const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL
+
     try {
+      if (DEMO_MODE) {
+        const data = mockLogin(email, password)
+        login(data.token, { id: data.user_id, email: data.email, role: data.role as 'admin' })
+        navigate('/app', { replace: true })
+        return
+      }
+
       const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/auth/login`,
+        `${import.meta.env.VITE_API_BASE_URL}/auth/login`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -34,10 +43,8 @@ export function LoginPage() {
       const data = await res.json()
       login(data.token, { id: data.user_id, email: data.email, role: data.role })
       navigate('/app', { replace: true })
-    } catch {
-      const data = mockLogin(email, password)
-      login(data.token, { id: data.user_id, email: data.email, role: data.role as 'admin' })
-      navigate('/app', { replace: true })
+    } catch (err) {
+      setError((err as Error).message || 'Login failed')
     } finally {
       setLoading(false)
     }
@@ -60,10 +67,10 @@ export function LoginPage() {
           )}
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-300">Email</label>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-300">Username</label>
             <input
               id="email"
-              type="email"
+              type="text"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}

@@ -1,4 +1,3 @@
-import json
 import logging
 
 from services import escalation_service
@@ -7,8 +6,6 @@ logger = logging.getLogger(__name__)
 
 
 def lambda_handler(event, context):
-    logger.info("Escalation handler invoked", extra={"event": json.dumps(event)[:500]})
-
     case_id = event["case_id"]
     user_id = event["user_id"]
     evidence = event.get("evidence")
@@ -17,7 +14,7 @@ def lambda_handler(event, context):
 
     logger.info(
         "Escalating case",
-        extra={"case_id": case_id, "user_id": user_id, "reason": reason},
+        extra={"case_id": case_id, "reason": reason},
     )
 
     result = escalation_service.escalate_case(

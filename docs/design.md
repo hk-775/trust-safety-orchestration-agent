@@ -1,22 +1,28 @@
 # SafetyAgent: Safety Orchestration Agent - Technical Design
 
+> This document combines the implemented architecture with longer-term design
+> context. Where they differ, `template.yaml`, the runtime code, and the
+> "Current Configuration" notes are authoritative.
+
 ## Assumptions
 
 - **AWS Cloud Platform**: System will be deployed on AWS using serverless architecture (Lambda, DynamoDB, S3, API Gateway, Step Functions, SQS, SNS, EventBridge).
 - **Python Backend**: Lambda functions will be implemented in Python 3.11+ for ML/AI capabilities and consistency with data science tooling.
 - **React Frontend**: Dashboard will be a React 18+ TypeScript SPA with TailwindCSS for styling.
-- **Existing Platform APIs**: Integration with existing platform services (User, Messaging, Profile, Reporting) via internal REST APIs with API keys.
-- **Amazon Bedrock**: LLM capabilities for message analysis and threat detection via Amazon Bedrock (Claude models).
-- **Redis ElastiCache**: Used for real-time caching, rate limiting state, and WebSocket connection management.
+- **Existing Platform APIs**: Integration with existing platform services (User, Messaging, Profile, Reporting) via configured HTTPS endpoints. Authentication is platform-specific and is not implemented by this sample.
+- **Amazon Bedrock**: Optional model-backed sentiment enrichment. Deterministic
+  message checks remain available when no model is configured.
+- **Redis ElastiCache**: Optional shared state for distributed rate limits,
+  short-lived counters, and circuit breakers.
 - **PostgreSQL RDS**: Existing user database; SafetyAgent will use DynamoDB for its own operational data.
 - **Event-Driven Architecture**: Behavioral events streamed via Amazon Kinesis from the platform.
-- **cross-platform API Gateway**: Cross-platform intelligence sharing via dedicated cross-platform internal API with mutual TLS.
+- **Cross-platform API**: Cross-platform intelligence sharing uses a configured HTTPS endpoint. Production authentication and partner trust controls are integration responsibilities.
 
 ---
 
 ## Overview
 
-SafetyAgent is designed as an event-driven, serverless microservices architecture that processes user behavioral signals through a detection-investigation-enforcement pipeline. The system uses AWS Step Functions for orchestrating multi-step investigation workflows, DynamoDB for high-throughput operational data, and a React dashboard for real-time monitoring. The architecture emphasizes horizontal scalability, fault tolerance through circuit breakers and retry mechanisms, and complete audit trail immutability for compliance.
+SafetyAgent is designed as an event-driven, serverless microservices architecture that processes user behavioral signals through a detection-investigation-enforcement pipeline. The system uses AWS Step Functions for orchestrating multi-step investigation workflows, DynamoDB for high-throughput operational data, and a React dashboard for real-time monitoring. The architecture emphasizes horizontal scalability, fault tolerance through circuit breakers and retry mechanisms, and durable audit records. WORM retention and regulatory compliance controls require additional production implementation.
 
 ---
 
@@ -52,7 +58,7 @@ SafetyAgent is designed as an event-driven, serverless microservices architectur
 │  │  │   queue    │ │             │ │            │ │            │              │   │
 │  │  └────────────┘ └────────────┘ └────────────┘ └────────────┘              │   │
 │  │  ┌────────────────────────────────────────────────────────────────────┐   │   │
-│  │  │              WebSocket: /dashboard/stream                           │   │   │
+│  │  │          WebSocket routes: $connect / $disconnect / $default       │   │   │
 │  │  └────────────────────────────────────────────────────────────────────┘   │   │
 │  └─────────────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────────────┘
@@ -156,9 +162,9 @@ SafetyAgent is designed as an event-driven, serverless microservices architectur
 │  │  │ tg-reviewer-state        │ │  │      Redis ElastiCache         │            │
 │  │  │ tg-websocket-connections │ │  │  ┌──────────────────────────┐ │            │
 │  │  │ tg-anomaly-scores        │ │  │  │ Rate limit counters      │ │            │
-│  │  │ tg-appeals               │ │  │  │ WebSocket sessions       │ │            │
-│  │  └──────────────────────────┘ │  │  │ Anomaly score cache      │ │            │
-│  └────────────────────────────────┘  │  │ Config cache             │ │            │
+│  │  │ tg-appeals               │ │  │  │ Circuit breaker state    │ │            │
+│  │  └──────────────────────────┘ │  │  │ Distributed rate limits  │ │            │
+│  └────────────────────────────────┘  │  │ Short-lived counters     │ │            │
 │                                       │  └──────────────────────────┘ │            │
 │                                       └────────────────────────────────┘            │
 └─────────────────────────────────────────────────────────────────────────────────────┘
@@ -173,9 +179,9 @@ SafetyAgent is designed as an event-driven, serverless microservices architectur
 │  │              │ │              │ │     API      │ │              │              │
 │  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘              │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐              │
-│  │  Reverse     │ │ AI Face      │ │ Stock Photo  │ │   SNS/SES    │              │
-│  │ Image Search │ │ Detection    │ │  Detection   │ │(Notifications)│              │
-│  │    API       │ │    API       │ │     API      │ │              │              │
+│  │  Optional    │ │  Optional    │ │  Optional    │ │  Platform    │              │
+│  │ Image Search │ │ AI Detection │ │ Stock Photo  │ │Notification  │              │
+│  │   Adapter    │ │   Adapter    │ │   Adapter    │ │     API      │              │
 │  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘              │
 │  ┌──────────────┐ ┌──────────────┐                                                │
 │  │   Kinesis    │ │  CloudWatch  │                                                │
@@ -191,41 +197,46 @@ SafetyAgent is designed as an event-driven, serverless microservices architectur
 ### Infrastructure & Configuration
 
 #### API Gateway Configuration
-**Responsibility**: Route all HTTP/WebSocket traffic to appropriate Lambda handlers with authentication, rate limiting, and request validation.
+**Responsibility**: Route HTTP and WebSocket traffic to the appropriate Lambda
+handlers and apply the authentication configured for each API.
 
-**Key Configuration**:
-- REST API with resource-based routing
-- WebSocket API for real-time dashboard updates
-- Cognito User Pool authorizer for authentication
-- Request/response validators per endpoint
-- Usage plans and API keys for external integrations
-- WAF integration for DDoS protection
+**Current Configuration**:
+- REST API with resource-based routing and a default Cognito authorizer.
+- Public REST exceptions for login, health, and metrics.
+- CORS defaults to the local development origin and is configurable per stack.
+- WebSocket API for real-time dashboard updates.
+- No WebSocket authorizer; this is a production release gap.
+- CloudFront same-origin proxying for `/api/*`.
 
 **Endpoints**:
-| Method | Path | Handler | Auth | Rate Limit |
-|--------|------|---------|------|------------|
-| POST | /api/v1/anomalies/analyze | AnomalyHandler | API Key | 1000/min |
-| PUT | /api/v1/config/thresholds | ConfigHandler | Admin JWT + MFA | 10/min |
-| GET | /api/v1/cases/{caseId}/evidence | CaseHandler | Operator JWT | 100/min |
-| POST | /api/v1/enforcement/execute | EnforcementHandler | System Key | 500/min |
-| POST | /api/v1/enforcement/bulk | EnforcementHandler | Admin JWT | 10/min |
-| GET | /api/v1/review-queue | ReviewHandler | Reviewer JWT | 100/min |
-| POST | /api/v1/cases/{caseId}/decision | ReviewHandler | Reviewer JWT | 100/min |
-| POST | /api/v1/intelligence/ingest | IntelligenceHandler | mTLS | 100/min |
-| POST | /api/v1/intelligence/publish | IntelligenceHandler | mTLS | 100/min |
-| GET | /api/v1/metrics/realtime | MetricsHandler | Operator JWT | 60/min |
-| GET | /api/v1/audit/export | AuditHandler | Admin JWT | 5/min |
-| GET | /api/v1/reports/compliance | AuditHandler | Admin JWT | 10/min |
-| POST | /api/v1/appeals | AppealHandler | User JWT | 10/min |
-| POST | /api/v1/crisis/resources | CrisisHandler | System Key | 100/min |
-| GET | /api/v1/health | HealthHandler | None | 100/min |
-| GET | /api/v1/metrics | MetricsHandler | None | 100/min |
-| GET | /api/v1/config/current | ConfigHandler | Admin JWT | 100/min |
-| POST | /api/v1/config/rollback | ConfigHandler | Admin JWT + MFA | 5/min |
-| GET | /api/v1/reviewers/{reviewerId}/exposure-metrics | ReviewerHandler | TL JWT | 100/min |
-| $connect | /dashboard/stream | WebSocketHandler | Operator JWT | 1000 concurrent |
-| $disconnect | /dashboard/stream | WebSocketHandler | None | - |
-| $default | /dashboard/stream | WebSocketHandler | None | - |
+| Method | Path | Handler | Current auth |
+|--------|------|---------|--------------|
+| POST | /api/v1/anomalies/analyze | AnomalyHandler | Cognito JWT |
+| PUT | /api/v1/config/thresholds | ConfigHandler | Cognito JWT |
+| GET | /api/v1/cases/{caseId}/evidence | CaseHandler | Cognito JWT |
+| POST | /api/v1/enforcement/execute | EnforcementHandler | Cognito JWT |
+| POST | /api/v1/enforcement/bulk | EnforcementHandler | Cognito JWT |
+| GET | /api/v1/review-queue | ReviewHandler | Cognito JWT |
+| POST | /api/v1/cases/{caseId}/decision | ReviewHandler | Cognito JWT |
+| POST | /api/v1/intelligence/ingest | IntelligenceHandler | Cognito JWT |
+| POST | /api/v1/intelligence/publish | IntelligenceHandler | Cognito JWT |
+| GET | /api/v1/metrics/realtime | MetricsHandler | Public |
+| GET | /api/v1/audit/export | AuditHandler | Cognito JWT |
+| GET | /api/v1/reports/compliance | AuditHandler | Cognito JWT |
+| POST | /api/v1/appeals | AppealHandler | Cognito JWT |
+| POST | /api/v1/crisis/resources | CrisisHandler | Cognito JWT |
+| GET | /api/v1/health | HealthHandler | Public |
+| GET | /api/v1/metrics | MetricsHandler | Public |
+| GET | /api/v1/config/current | ConfigHandler | Cognito JWT |
+| POST | /api/v1/config/rollback | ConfigHandler | Cognito JWT |
+| GET | /api/v1/reviewers/{reviewerId}/exposure-metrics | ReviewerHandler | Cognito JWT |
+| $connect | WebSocket stage endpoint | WebSocketHandler | None (production gap) |
+| $disconnect | WebSocket stage endpoint | WebSocketHandler | None |
+| $default | WebSocket stage endpoint | WebSocketHandler | None |
+
+The current handlers do not enforce application roles or MFA claims, and the
+template does not configure API Gateway usage-plan throttles. Those controls
+must be designed and tested before production use.
 
 **Satisfies**: AC-1.8, AC-1.9, AC-2.10, AC-3.6, AC-4.7, AC-4.8, AC-5.8, AC-5.9, AC-6.4, AC-6.6, AC-7.6, AC-8.7, AC-8.8, AC-9.7, AC-10.1-10.4, AC-10.8, AC-10.9, AC-11.1, AC-11.2, AC-12.7
 
@@ -234,14 +245,18 @@ SafetyAgent is designed as an event-driven, serverless microservices architectur
 #### IAM Policies and Roles
 **Responsibility**: Define least-privilege access for all Lambda functions and services.
 
-**Roles**:
-- `SafetyAgentAnomalyProcessorRole`: Kinesis read, DynamoDB RW (anomaly-scores), Redis RW
-- `SafetyAgentInvestigationRole`: DynamoDB RW (cases, evidence), S3 RW, Step Functions start
-- `SafetyAgentEnforcementRole`: DynamoDB RW, SNS/SES publish, Platform API invoke
-- `SafetyAgentAuditRole`: DynamoDB RW (audit-logs), S3 write (archive)
-- `SafetyAgentConfigRole`: DynamoDB RW (config), Secrets Manager read
-- `SafetyAgentExternalIntegrationRole`: API Gateway invoke, Bedrock invoke
-- `SafetyAgentReviewerRole`: DynamoDB RW (review-queue, cases), S3 read (evidence)
+SAM generates a separate execution role for each function from its declared
+policy templates and inline statements. There are no shared named application
+roles in the current template.
+
+**Current SAM implementation notes**:
+- The evidence assembler has DynamoDB read/write access to cases and evidence,
+  S3 read/write access to evidence, and Bedrock inference-profile access.
+- The escalation handler has DynamoDB read/write access to cases, the review
+  queue, and audit logs.
+- The WebSocket handler has connection-table read/write access, read access to
+  metrics, cases, and review queue data, and
+  `execute-api:ManageConnections`.
 
 **Satisfies**: AC-NFR-3.3, AC-NFR-3.4
 
@@ -268,7 +283,7 @@ Resources:
   InvestigationStateMachine
   BulkActionStateMachine
   
-  # DynamoDB Tables (10)
+  # DynamoDB Tables (11)
   CasesTable
   EvidenceMetadataTable
   AuditLogsTable
@@ -292,6 +307,21 @@ Resources:
   Dashboards
 ```
 
+**Deployment profiles**:
+- `dev`: Redis/VPC disabled by default.
+- `staging`: Redis/VPC optional, with one shared NAT gateway when enabled.
+- `prodtest`: production-like Redis, dual-NAT, logging, and stream sizing with
+  deletion-safe state and an in-stack upstream mock.
+- `prod`: Redis and dual-NAT required; core data is retained on stack deletion.
+
+The public deployment script and GitHub workflow refuse `prod`. A direct
+template deployment also requires `AcknowledgeIncompleteProduction=true`.
+
+The WebSocket handler intentionally runs outside the VPC because it does not
+use Redis and must reach the API Gateway Management API. Redis-dependent
+functions run in private subnets with S3/DynamoDB gateway endpoints and NAT
+egress.
+
 **Satisfies**: AC-NFR-4.2, AC-NFR-4.3
 
 ---
@@ -300,22 +330,29 @@ Resources:
 **Responsibility**: Manage environment-specific settings and secrets.
 
 **Configuration Sources**:
-- AWS Systems Manager Parameter Store: Non-sensitive configuration
-- AWS Secrets Manager: API keys, database credentials, encryption keys
-- DynamoDB `tg-config` table: Runtime-configurable thresholds and policies
+- CloudFormation parameters and Lambda environment variables.
+- DynamoDB `tg-config` table for runtime-configurable thresholds and policies.
+- GitHub environment variables/secrets for the optional deployment workflow.
+
+The current template does not provision an external integration API key or
+Secrets Manager resource. That is a production release gap.
 
 **Environment Variables per Lambda**:
 ```
-ENVIRONMENT=production
+ENVIRONMENT=prod
 LOG_LEVEL=INFO
-DYNAMODB_CASES_TABLE=tg-cases-prod
-S3_EVIDENCE_BUCKET=tg-evidence-store-prod
+CASES_TABLE=tg-cases-prod
+EVIDENCE_BUCKET=tg-evidence-store-prod
 REDIS_ENDPOINT=redis-cluster.xxxxx.cache.amazonaws.com
-PLATFORM_USER_API_URL=https://internal-api.example.com/users
-PLATFORM_MESSAGING_API_URL=https://internal-api.example.com/messages
-BEDROCK_MODEL_ID=anthropic.claude-3-sonnet
-PARTNER_NETWORK_INTEL_API_URL=https://intel-api.partner-network.internal
+PLATFORM_USER_API_URL=https://users.example.org/v1
+PLATFORM_MESSAGING_API_URL=https://messages.example.org/v1
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
+PARTNER_NETWORK_INTEL_API_URL=https://intel.example.org/v1
 ```
+
+Actual production rejects reserved example domains. The values above illustrate
+the expected shape only. External API authentication must be injected from an
+approved secret-management path before production.
 
 **Satisfies**: AC-10.7, AC-NFR-3.1, AC-NFR-3.2
 
@@ -341,7 +378,7 @@ async def analyze_anomalies(event: APIGatewayEvent) -> APIGatewayResponse:
     """
 ```
 
-**Dependencies**: AnomalyDetectionService, AuditService, RateLimiterService
+**Dependencies**: AnomalyDetectionService
 
 **Satisfies**: AC-1.8, AC-1.9
 
@@ -400,7 +437,8 @@ async def execute_enforcement(event: APIGatewayEvent) -> APIGatewayResponse:
     Response: {
         "audit_trail_id": "AUDIT-xxx",
         "action_status": "completed",
-        "user_notified": true
+        "notification_status": "queued",
+        "user_notified": false
     }
     """
 
@@ -560,6 +598,10 @@ async def broadcast_metrics_update(metrics: RealtimeMetrics) -> None
 
 **Dependencies**: WebSocketConnectionRepository, MetricsService
 
+**Deployment note**: This function runs outside the Redis VPC so scheduled and
+manual broadcasts can call the API Gateway Management API. It reads the review
+queue when composing metrics and requires `execute-api:ManageConnections`.
+
 **Satisfies**: AC-8.7, AC-8.12
 
 ---
@@ -576,14 +618,16 @@ async def health_check(event: APIGatewayEvent) -> APIGatewayResponse:
         "status": "healthy",
         "components": {
             "dynamodb": {"status": "healthy", "latency_ms": 12},
-            "redis": {"status": "healthy", "latency_ms": 3},
-            "platform_api": {"status": "healthy", "latency_ms": 45},
-            "bedrock": {"status": "degraded", "latency_ms": 890}
+            "redis": {"status": "healthy", "latency_ms": 3}
         },
-        "timestamp": "ISO8601"
+        "timestamp": 1787241600.0
     }
     """
 ```
+
+Failed component checks return only `unhealthy` status and latency; exception
+details are logged as exception classes rather than exposed by this public
+endpoint.
 
 **Satisfies**: AC-11.1
 
@@ -710,12 +754,13 @@ async def get_exposure_metrics(event: APIGatewayEvent) -> APIGatewayResponse:
 async def process_behavioral_events(event: KinesisEvent) -> None:
     """
     Processes batch of behavioral events (message sends, profile views, matches).
-    Updates anomaly scores in DynamoDB and Redis cache.
+    Updates anomaly scores in DynamoDB.
     Triggers investigations when thresholds exceeded.
     """
 ```
 
-**Dependencies**: AnomalyDetectionService, CaseRepository, RateLimiterService, AuditService
+**Dependencies**: AnomalyDetectionService, CaseRepository, AuditRepository,
+MetricsRepository, Step Functions
 
 **Satisfies**: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.6, AC-1.7, AC-1.10
 
@@ -752,12 +797,13 @@ async def process_profile_creation(event: EventBridgeEvent) -> None:
 ```python
 async def detect_bulk_attacks(event: ScheduledEvent) -> None:
     """
-    Analyzes profile creation patterns, IP ranges, device fingerprints.
-    Triggers bulk investigation workflow when attack detected.
+    Aggregates profile-creation metrics by IP range.
+    Triggers the bulk workflow when the configured threshold is exceeded.
     """
 ```
 
-**Dependencies**: MetricsRepository, CaseRepository, RateLimiterService
+**Dependencies**: MetricsRepository, CaseRepository, AuditRepository,
+Step Functions
 
 **Satisfies**: AC-9.1, AC-9.2, AC-9.3, AC-9.6, AC-9.8
 
@@ -772,13 +818,13 @@ async def detect_bulk_attacks(event: ScheduledEvent) -> None:
 ```python
 async def process_notifications(event: SQSEvent) -> None:
     """
-    Sends in-app notifications via Platform API.
-    Sends email notifications via SES.
-    Tracks delivery status.
+    Delivers queued in-app and email notification requests to the
+    configured Platform User API.
+    Returns failed SQS item identifiers so Lambda retries safely.
     """
 ```
 
-**Dependencies**: NotificationService, PlatformUserAPI, AuditService
+**Dependencies**: PlatformUserAPI, AuditService
 
 **Satisfies**: AC-3.3, AC-12.1, AC-12.2, AC-12.3, AC-12.4, AC-12.5, AC-12.8, AC-12.9
 
@@ -790,19 +836,17 @@ async def process_notifications(event: SQSEvent) -> None:
 **Responsibility**: Orchestrate multi-step investigation process.
 
 **States**:
-1. **GatherProfileMetadata**: Retrieve user profile and device info
-2. **GatherMessageHistory**: Fetch and store messages for analysis
-3. **AnalyzeMessages**: Run sentiment, threat, and scam detection
-4. **AnalyzeImages**: Run reverse image search, AI detection
-5. **CheckBadActorPatterns**: Cross-reference with blocklist
-6. **GatherPreviousReports**: Retrieve report history
-7. **CalculateConfidenceScores**: Compute weighted violation scores
-8. **CheckSensitiveCategories**: Determine if crisis/sensitive
-9. **RouteDecision**: Branch to autonomous or human review
-10. **ExecuteAutonomousAction**: Perform enforcement
-11. **EscalateToHumanReview**: Add to review queue
-
-**Parallel Execution**: Steps 2-6 run in parallel for performance.
+1. **AssembleEvidence**: Fetch profile metadata, messages, and reports in
+   parallel inside the evidence Lambda; run deterministic message checks and
+   optional Bedrock sentiment analysis; store the package.
+2. **CalculateConfidence**: Compute explicit violation scores.
+3. **CheckSensitiveCategory**: Route configured crisis categories to the
+   crisis handler.
+4. **HandleCrisis**: Create one critical review item and audit record.
+5. **RouteDecision**: Apply policy thresholds.
+6. **ExecuteAutonomousAction**: Perform an explicitly eligible action.
+7. **EscalateToHumanReview**: Add uncertain cases to the review queue.
+8. **EscalateOnError**: Fail safe to human review after persistent errors.
 
 **Error Handling**: 
 - Retry with exponential backoff on transient failures
@@ -817,12 +861,12 @@ async def process_notifications(event: SQSEvent) -> None:
 **Responsibility**: Orchestrate bulk enforcement actions.
 
 **States**:
-1. **IdentifyLinkedAccounts**: Find all accounts matching attack pattern
-2. **ValidateConfidence**: Check confidence meets bulk action threshold
-3. **RouteByConfidence**: Branch to auto or human review
-4. **ExecuteBulkAction**: Process accounts in batches
-5. **UpdateBlocklist**: Add patterns to detection filters
-6. **NotifyOperations**: Send dashboard alerts
+1. **ValidateConfidence**: Require both confidence of at least 0.85 and a
+   non-empty, explicitly supplied user list.
+2. **ExecuteBulkAction**: Apply the requested action in bounded batches.
+3. **EscalateToHumanReview**: Default route used by the scheduled detector,
+   which supplies no autonomous user list.
+4. **BulkActionComplete**: End the workflow after either branch.
 
 **Satisfies**: AC-9.3, AC-9.4, AC-9.5, AC-9.9
 
@@ -831,7 +875,8 @@ async def process_notifications(event: SQSEvent) -> None:
 ### Business Logic / Services
 
 #### AnomalyDetectionService (`services/anomaly_detection_service.py`)
-**Responsibility**: Calculate behavioral anomaly scores using ML model.
+**Responsibility**: Calculate behavioral anomaly scores using deterministic,
+inspectable heuristics and account-tier thresholds.
 
 **Interfaces**:
 ```python
@@ -859,7 +904,7 @@ class AnomalyDetectionService:
         """Batch processing for efficiency"""
 ```
 
-**Dependencies**: ConfigRepository (thresholds), Redis cache, ML model (SageMaker endpoint)
+**Dependencies**: ConfigRepository (thresholds)
 
 **Satisfies**: AC-1.1, AC-1.2, AC-1.3, AC-1.10
 
@@ -1213,7 +1258,7 @@ class PrecedentMatcherService:
         """
 ```
 
-**Dependencies**: CaseRepository, ML embeddings model
+**Dependencies**: CaseRepository and rule-based similarity scoring
 
 **Satisfies**: AC-4.6
 
@@ -1259,7 +1304,7 @@ class RateLimiterService:
 ---
 
 #### NotificationService (`services/notification_service.py`)
-**Responsibility**: Send user notifications across channels.
+**Responsibility**: Format and queue user notifications across channels.
 
 **Interfaces**:
 ```python
@@ -1289,7 +1334,7 @@ class NotificationService:
     ) -> NotificationTemplate
 ```
 
-**Dependencies**: PlatformNotificationAPI, SES, ConfigRepository (templates)
+**Dependencies**: SQS notification queue, AuditRepository
 
 **Satisfies**: AC-12.1-AC-12.5, AC-12.8, AC-12.9
 
@@ -1414,7 +1459,8 @@ class CircuitBreakerService:
 ---
 
 #### FeedbackLoopService (`services/feedback_loop_service.py`)
-**Responsibility**: Feed reviewer decisions back to ML model training.
+**Responsibility**: Store reviewer decisions and export newline-delimited
+feedback data for offline evaluation or an adopter-managed training process.
 
 **Interfaces**:
 ```python
@@ -1434,7 +1480,7 @@ class FeedbackLoopService:
     ) -> str:  # S3 URI
 ```
 
-**Dependencies**: S3, SageMaker
+**Dependencies**: S3
 
 **Satisfies**: AC-4.10
 
@@ -1707,6 +1753,19 @@ class WebSocketConnectionRepository:
 
 ---
 
+#### Audit and Review Queue Write Safety
+**Responsibility**: Preserve DynamoDB-compatible audit records and make
+human-review escalation safe to retry.
+
+- Audit values are recursively converted from Python `float` to `Decimal`
+  before DynamoDB writes.
+- Escalation and crisis flows provide stable deduplication keys.
+- The review queue derives a deterministic ID from the key and uses a
+  conditional write, so Step Functions retries return the existing queue item
+  instead of creating duplicates.
+
+---
+
 ### Frontend / UI Components
 
 #### Dashboard Module (`frontend/src/modules/dashboard/`)
@@ -1963,7 +2022,7 @@ class DashboardService {
 **Interfaces**:
 ```typescript
 class WebSocketService {
-  connect(token: string): void;
+  connect(): void;
   disconnect(): void;
   subscribe(eventType: string, callback: (data: any) => void): void;
   unsubscribe(eventType: string): void;
@@ -2190,7 +2249,9 @@ interface ReviewState {
 - GSI: `event_type-timestamp-index` (event_type, timestamp)
 - GSI: `jurisdiction-timestamp-index` (jurisdiction_code, timestamp)
 
-**TTL**: None (7+ year retention, archived to S3 after 1 year)
+**TTL**: None. Production retention, export, and legal-hold requirements must
+be defined by the adopter; the sample does not automatically archive
+DynamoDB records to S3.
 
 ---
 
@@ -2302,7 +2363,7 @@ interface ReviewState {
 | `connected_at` | String | ISO8601 timestamp |
 | `last_ping` | String | ISO8601 timestamp |
 
-**TTL**: 24 hours
+**TTL**: 2 hours, refreshed on connection activity
 
 ---
 
@@ -2550,30 +2611,24 @@ sequenceDiagram
     participant K as Kinesis Stream
     participant BP as BehavioralProcessor
     participant ADS as AnomalyDetectionService
-    participant RDS as Redis Cache
     participant DDB as DynamoDB
     participant SFN as Step Functions
     participant AS as AuditService
-    participant RLS as RateLimiterService
 
     K->>BP: Behavioral event batch (messages, views, matches)
     BP->>ADS: calculate_anomaly_score(user_id, metrics)
-    ADS->>RDS: Get cached score & thresholds
-    RDS-->>ADS: Cached data (or miss)
-    ADS->>ADS: Run anomaly ML model
-    ADS->>DDB: Update tg-anomaly-scores
-    ADS->>RDS: Cache updated score
+    ADS->>DDB: Read configured tier thresholds
+    ADS->>ADS: Apply deterministic scoring rules
     ADS-->>BP: AnomalyResult(score, factors, tier)
+    BP->>DDB: Write tg-anomaly-scores
     
     alt Score > Investigation Threshold
         BP->>SFN: StartExecution(InvestigationWorkflow)
         BP->>AS: log_detection_event(user_id, score, threshold)
         AS->>DDB: Write to tg-audit-logs
     else Score > Enhanced Monitoring Threshold
-        BP->>DDB: Update monitoring_status = "enhanced"
-        BP->>RLS: apply_rate_limit(user_id, messages, 10/hour)
-        RLS->>RDS: Set rate limit counter
         BP->>AS: log_detection_event(user_id, score, threshold)
+        AS->>DDB: Write enhanced-monitoring audit record
     else Score Normal
         BP->>BP: No action needed
     end
@@ -2588,8 +2643,7 @@ sequenceDiagram
     participant HUA as Platform User API
     participant HMA as Platform Messaging API
     participant CAS as ContentAnalysisService
-    participant IAS as ImageAnalysisService
-    participant IS as IntelligenceService
+    participant BLR as BlocklistRepository
     participant S3 as S3 Evidence Store
     participant DDB as DynamoDB
     participant BR as Amazon Bedrock
@@ -2603,29 +2657,25 @@ sequenceDiagram
         EAS->>HMA: Get message history (30 days)
         HMA-->>EAS: Messages[]
         EAS->>CAS: analyze_messages(messages)
-        CAS->>BR: Invoke Claude for analysis
-        BR-->>CAS: Analysis result
+        CAS->>CAS: Apply scam, threat, and crisis rules
+        opt Bedrock model configured
+            CAS->>BR: Analyze message-sample sentiment
+            BR-->>CAS: Structured sentiment result
+        end
         CAS-->>EAS: ContentAnalysisResult
-        
-        EAS->>HUA: Get profile photos
-        HUA-->>EAS: Photo URLs
-        EAS->>IAS: analyze_profile_images(photos)
-        IAS->>IAS: Reverse image search
-        IAS->>IAS: AI face detection
-        IAS->>IAS: Stock photo check
-        IAS-->>EAS: ImageAnalysisResult
-        
-        EAS->>IS: check_blocklist_match(fingerprint, signature)
-        IS->>DDB: Query tg-blocklist
-        DDB-->>IS: Matches[]
-        IS-->>EAS: BadActorMatches[]
-        
+
         EAS->>HUA: Get report history
         HUA-->>EAS: Reports[]
     end
+
+    opt Device fingerprint present
+        EAS->>BLR: Check fingerprint
+        BLR->>DDB: Query tg-blocklist
+        DDB-->>BLR: Match or no match
+        BLR-->>EAS: BadActorMatch
+    end
     
     EAS->>EAS: Compile evidence package
-    EAS->>EAS: Calculate confidence scores
     EAS->>S3: Store evidence package
     EAS->>DDB: Write evidence metadata to tg-evidence-metadata
     EAS-->>SFN: EvidencePackage
@@ -2644,7 +2694,6 @@ sequenceDiagram
     participant BLR as BlocklistRepository
     participant DDB as DynamoDB
     participant SQS as SQS Notification Queue
-    participant SES as Amazon SES
 
     SFN->>PES: should_execute_autonomous(violation, confidence)
     PES->>DDB: Get threshold config from tg-config
@@ -2669,9 +2718,7 @@ sequenceDiagram
     
     EES->>NS: send_enforcement_notification(user_id, violation, action)
     NS->>SQS: Queue notification
-    SQS->>NS: NotificationProcessor
-    NS->>HUA: Send in-app notification
-    NS->>SES: Send email notification
+    SQS->>HUA: NotificationProcessor posts channel request
     
     EES->>DDB: Update case status in tg-cases
     EES-->>SFN: EnforcementResult(success, audit_id)
@@ -2726,7 +2773,7 @@ sequenceDiagram
     EES->>EES: Same enforcement flow as US-3
     
     RS->>FLS: record_decision_feedback(case, prediction, actual)
-    FLS->>S3: Store feedback for ML training
+    FLS->>S3: Store feedback for offline evaluation/export
     
     RS-->>UI: DecisionResult
 ```
@@ -2793,16 +2840,14 @@ sequenceDiagram
     participant MS as MetricsService
     participant MR as MetricsRepository
     participant DDB as DynamoDB
-    participant Redis as Redis Cache
     participant EB as EventBridge
 
     Note over UI,WSH: Connection Setup
     
-    UI->>WSS: connect(authToken)
-    WSS->>APIG: $connect (with token)
+    UI->>WSS: connect()
+    WSS->>APIG: $connect (no authorizer)
     APIG->>WSH: handle_connect(event)
-    WSH->>WSH: Validate JWT
-    WSH->>WCR: save_connection(connection_id, user_id)
+    WSH->>WCR: save_connection(connection_id, "anonymous")
     WCR->>DDB: Insert into tg-websocket-connections
     WSH-->>APIG: 200 OK
     APIG-->>UI: Connected
@@ -2810,22 +2855,17 @@ sequenceDiagram
     Note over UI,DDB: Initial Data Load
     
     UI->>MS: GET /api/v1/metrics/realtime
-    MS->>Redis: Get cached metrics
-    Redis-->>MS: CachedMetrics (or miss)
-    alt Cache miss
-        MS->>MR: get_realtime_snapshot()
-        MR->>DDB: Aggregate from tg-metrics, tg-cases
-        DDB-->>MR: Raw metrics
-        MR-->>MS: Aggregated metrics
-        MS->>Redis: Cache for 30s
-    end
+    MS->>MR: get_realtime_metrics()
+    MR->>DDB: Query metrics, cases, and review queue
+    DDB-->>MR: Raw metrics
+    MR-->>MS: Aggregated metrics
     MS-->>UI: RealtimeMetrics
     
     Note over EB,UI: Real-Time Updates
     
-    EB->>WSH: Scheduled event (every 30s)
+    EB->>WSH: Scheduled event (every minute)
     WSH->>MS: get_realtime_metrics()
-    MS->>Redis: Get/calculate current metrics
+    MS->>DDB: Query current metrics and queue state
     MS-->>WSH: RealtimeMetrics
     
     WSH->>WCR: get_all_connections()
@@ -2859,12 +2899,10 @@ sequenceDiagram
     participant BAD as BulkAttackDetector
     participant MR as MetricsRepository
     participant DDB as DynamoDB
-    participant RLS as RateLimiterService
-    participant Redis as Redis
     participant SFN as Step Functions
     participant EES as EnforcementEngineService
     participant HUA as Platform User API
-    participant WSH as WebSocketHandler
+    participant ES as EscalationService
     participant AS as AuditService
 
     SCH->>BAD: detect_bulk_attacks() [every 1 min]
@@ -2873,38 +2911,28 @@ sequenceDiagram
     DDB-->>MR: Rate metrics
     MR-->>BAD: RatesByIPRange
     
-    BAD->>BAD: Analyze patterns (IP range, fingerprint clusters)
+    BAD->>BAD: Aggregate profile counts by IP range
     
     alt Attack detected (>50 profiles/hour from IP range)
-        BAD->>RLS: apply_ip_range_limit(ip_range, profile_creation, 0)
-        RLS->>Redis: Set IP range block
-        
-        BAD->>BAD: Identify linked accounts (fingerprint, naming patterns)
         BAD->>DDB: Create bulk case in tg-cases
-        
-        BAD->>SFN: StartExecution(BulkActionWorkflow)
-        
-        SFN->>SFN: Calculate bulk confidence score
-        
-        alt Confidence >= 85%
+
+        BAD->>SFN: StartExecution(confidence=0, user_ids=[])
+
+        alt Explicit users supplied and confidence >= 85%
             SFN->>EES: execute_bulk_action(user_ids, permanent_ban)
-            
+
             loop Batch of 100 users
                 EES->>HUA: Bulk ban users
                 HUA-->>EES: Success
             end
-            
-            EES->>DDB: Update blocklist with attack patterns
+
             EES->>AS: log_bulk_enforcement(case_id, user_count, pattern)
             AS->>DDB: Write to tg-audit-logs
-            
-        else Confidence < 85%
-            SFN->>SFN: Escalate to human review
+        else Scheduled detector default
+            SFN->>ES: Escalate bot-farm case to human review
+            ES->>DDB: Write deterministic review-queue item
         end
-        
-        BAD->>WSH: broadcast_elevated_threat_alert(attack_summary)
-        WSH->>WSH: Push to all dashboard connections
-        
+
         BAD->>AS: log_attack_detection(ip_range, linked_count, pattern)
     end
 ```

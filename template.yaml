@@ -1,8 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Transform: AWS::Serverless-2016-10-31
+Transform:
+  - AWS::LanguageExtensions
+  - AWS::Serverless-2016-10-31
 Description: >
-  Trust & Safety Orchestration Agent — autonomous content moderation and safety enforcement system.
-  Detects, investigates, and resolves policy violations at scale.
+  Reference implementation for event-driven trust and safety orchestration on AWS.
+  Demonstrates detection, investigation, policy routing, human review, and enforcement integration.
 
 Globals:
   Function:
@@ -15,7 +17,7 @@ Globals:
     Environment:
       Variables:
         ENVIRONMENT: !Ref Environment
-        LOG_LEVEL: !If [IsProd, "INFO", "DEBUG"]
+        LOG_LEVEL: !If [IsProdLike, "INFO", "DEBUG"]
         CASES_TABLE: !Ref CasesTable
         EVIDENCE_METADATA_TABLE: !Ref EvidenceMetadataTable
         AUDIT_LOGS_TABLE: !Ref AuditLogsTable
@@ -33,6 +35,7 @@ Globals:
         REDIS_ENDPOINT: !If [EnableRedis, !GetAtt RedisCluster.RedisEndpoint.Address, ""]
         REDIS_PORT: !If [EnableRedis, !GetAtt RedisCluster.RedisEndpoint.Port, ""]
         USE_REDIS: !Ref UseRedis
+        ALLOWED_CORS_ORIGIN: !Ref AllowedCorsOrigin
         NOTIFICATION_QUEUE_URL: !Ref NotificationQueue
         BEHAVIORAL_STREAM_NAME: !Ref BehavioralEventsStream
         WEBSOCKET_API_ENDPOINT: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
@@ -41,23 +44,42 @@ Parameters:
   Environment:
     Type: String
     Default: dev
-    AllowedValues: [dev, staging, prod]
+    AllowedValues: [dev, staging, prodtest, prod]
+
+  AllowedCorsOrigin:
+    Type: String
+    Default: http://localhost:3000
+    AllowedPattern: ^https?://[^[:space:]]+$
+    ConstraintDescription: Must be one HTTP or HTTPS origin without spaces
+
+  AcknowledgeIncompleteProduction:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Must be explicitly enabled only after the documented production gaps are resolved
 
   PlatformUserApiUrl:
     Type: String
     Default: https://internal-api.example.com/users
+    AllowedPattern: ^https://.+
+    ConstraintDescription: Must be an HTTPS URL
 
   PlatformMessagingApiUrl:
     Type: String
     Default: https://internal-api.example.com/messages
+    AllowedPattern: ^https://.+
+    ConstraintDescription: Must be an HTTPS URL
 
   BedrockModelId:
     Type: String
-    Default: anthropic.claude-3-sonnet-20240229-v1:0
+    Default: ""
+    Description: Optional for dev/staging; required explicitly by the prodtest deployment path
 
   PartnerIntelApiUrl:
     Type: String
     Default: https://intel-api.partner-network.internal
+    AllowedPattern: ^https://.+
+    ConstraintDescription: Must be an HTTPS URL
 
   VpcCidr:
     Type: String
@@ -71,24 +93,106 @@ Parameters:
     Type: String
     Default: 10.0.2.0/24
 
+  PublicSubnet1Cidr:
+    Type: String
+    Default: 10.0.101.0/24
+
+  PublicSubnet2Cidr:
+    Type: String
+    Default: 10.0.102.0/24
+
   RedisNodeType:
     Type: String
     Default: cache.t3.medium
 
   UseRedis:
     Type: String
-    Default: "true"
+    Default: "false"
     AllowedValues: ["true", "false"]
-    Description: "Set to false for dev/demo (skips VPC, Redis — uses DynamoDB for rate limiting)"
+    Description: "Set to true to deploy VPC and Redis resources; false disables Redis-dependent features for dev/demo"
+
+Rules:
+  ProductionPublicationGuard:
+    RuleCondition: !Equals [!Ref Environment, prod]
+    Assertions:
+      - Assert: !Equals [!Ref AcknowledgeIncompleteProduction, "true"]
+        AssertDescription: Production is disabled until the documented security gaps are resolved
+
+  ProductionTopologyConfiguration:
+    RuleCondition: !Or
+      - !Equals [!Ref Environment, prodtest]
+      - !Equals [!Ref Environment, prod]
+    Assertions:
+      - Assert: !Equals [!Ref UseRedis, "true"]
+        AssertDescription: Production-like deployments must enable Redis
+
+  ProductionIntegrationConfiguration:
+    RuleCondition: !Equals [!Ref Environment, prod]
+    Assertions:
+      - Assert: !Not
+          - !Equals [!Ref PlatformUserApiUrl, https://internal-api.example.com/users]
+        AssertDescription: Production deployments require a platform user API URL
+      - Assert: !Not
+          - !Equals [!Ref PlatformMessagingApiUrl, https://internal-api.example.com/messages]
+        AssertDescription: Production deployments require a platform messaging API URL
+      - Assert: !Not
+          - !Equals [!Ref PartnerIntelApiUrl, https://intel-api.partner-network.internal]
+        AssertDescription: Production deployments require a partner intelligence API URL
 
 Conditions:
   IsProd: !Equals [!Ref Environment, prod]
+  IsProdTest: !Equals [!Ref Environment, prodtest]
+  IsProdLike: !Or
+    - !Equals [!Ref Environment, prodtest]
+    - !Equals [!Ref Environment, prod]
   EnableRedis: !Equals [!Ref UseRedis, "true"]
+  EnableRedisAndProdLike: !And
+    - !Equals [!Ref UseRedis, "true"]
+    - !Or
+      - !Equals [!Ref Environment, prodtest]
+      - !Equals [!Ref Environment, prod]
 
 # =============================================================================
 # REST API Gateway
 # =============================================================================
 Resources:
+
+  ProdTestMockApi:
+    Type: AWS::Serverless::Api
+    Condition: IsProdTest
+    Properties:
+      Name: safetyagent-prodtest-upstream-mock
+      StageName: mock
+      EndpointConfiguration:
+        Type: REGIONAL
+      DefinitionBody:
+        swagger: '2.0'
+        info:
+          title: SafetyAgent prodtest upstream mock
+          version: '1.0'
+        paths:
+          /{proxy+}:
+            x-amazon-apigateway-any-method:
+              parameters:
+                - name: proxy
+                  in: path
+                  required: true
+                  type: string
+              responses:
+                '200':
+                  description: Empty mock response
+                  schema:
+                    type: object
+              x-amazon-apigateway-integration:
+                type: mock
+                passthroughBehavior: when_no_templates
+                requestTemplates:
+                  application/json: '{"statusCode": 200}'
+                responses:
+                  default:
+                    statusCode: '200'
+                    responseTemplates:
+                      application/json: '{}'
 
   SafetyAgentApi:
     Type: AWS::Serverless::Api
@@ -105,16 +209,16 @@ Resources:
       Cors:
         AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key'"
-        AllowOrigin: "'*'"
+        AllowOrigin: !Sub "'${AllowedCorsOrigin}'"
       GatewayResponses:
         DEFAULT_4XX:
           ResponseParameters:
             Headers:
-              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Origin: !Sub "'${AllowedCorsOrigin}'"
         DEFAULT_5XX:
           ResponseParameters:
             Headers:
-              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Origin: !Sub "'${AllowedCorsOrigin}'"
       Models:
         AnomalyAnalyzeRequest:
           type: object
@@ -297,6 +401,45 @@ Resources:
         - Key: Name
           Value: !Sub "safetyagent-vpc-${Environment}"
 
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: EnableRedis
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "safetyagent-igw-${Environment}"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: EnableRedis
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: EnableRedis
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "safetyagent-public-1-${Environment}"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: EnableRedis
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "safetyagent-public-2-${Environment}"
+
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Condition: EnableRedis
@@ -304,6 +447,7 @@ Resources:
       VpcId: !Ref VPC
       CidrBlock: !Ref PrivateSubnet1Cidr
       AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
           Value: !Sub "safetyagent-private-1-${Environment}"
@@ -315,9 +459,115 @@ Resources:
       VpcId: !Ref VPC
       CidrBlock: !Ref PrivateSubnet2Cidr
       AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
           Value: !Sub "safetyagent-private-2-${Environment}"
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: EnableRedis
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "safetyagent-public-${Environment}"
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    Condition: EnableRedis
+    DependsOn: VPCGatewayAttachment
+    Metadata:
+      guard:
+        # Required for private-subnet egress through the NAT gateways.
+        SuppressedRules:
+          - NO_UNRESTRICTED_ROUTE_TO_IGW
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: EnableRedis
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: EnableRedis
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  NatEip1:
+    Type: AWS::EC2::EIP
+    Condition: EnableRedis
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Condition: EnableRedis
+    Properties:
+      AllocationId: !GetAtt NatEip1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub "safetyagent-nat-1-${Environment}"
+
+  NatEip2:
+    Type: AWS::EC2::EIP
+    Condition: EnableRedisAndProdLike
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Condition: EnableRedisAndProdLike
+    Properties:
+      AllocationId: !GetAtt NatEip2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "safetyagent-nat-2-${Environment}"
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Condition: EnableRedis
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "safetyagent-private-1-${Environment}"
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Condition: EnableRedis
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "safetyagent-private-2-${Environment}"
+
+  PrivateSubnet1DefaultRoute:
+    Type: AWS::EC2::Route
+    Condition: EnableRedis
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateSubnet2DefaultRoute:
+    Type: AWS::EC2::Route
+    Condition: EnableRedis
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !If [EnableRedisAndProdLike, !Ref NatGateway2, !Ref NatGateway1]
 
   RedisSubnetGroup:
     Type: AWS::ElastiCache::SubnetGroup
@@ -355,7 +605,8 @@ Resources:
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.dynamodb"
       VpcEndpointType: Gateway
       RouteTableIds:
-        - !Ref PrivateRouteTable
+        - !Ref PrivateRouteTable1
+        - !Ref PrivateRouteTable2
 
   S3VpcEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -365,27 +616,22 @@ Resources:
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
       VpcEndpointType: Gateway
       RouteTableIds:
-        - !Ref PrivateRouteTable
-
-  PrivateRouteTable:
-    Type: AWS::EC2::RouteTable
-    Condition: EnableRedis
-    Properties:
-      VpcId: !Ref VPC
+        - !Ref PrivateRouteTable1
+        - !Ref PrivateRouteTable2
 
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Condition: EnableRedis
     Properties:
       SubnetId: !Ref PrivateSubnet1
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref PrivateRouteTable1
 
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Condition: EnableRedis
     Properties:
       SubnetId: !Ref PrivateSubnet2
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref PrivateRouteTable2
 
 # =============================================================================
 # ElastiCache Redis (only when UseRedis=true)
@@ -403,6 +649,8 @@ Resources:
       VpcSecurityGroupIds:
         - !Ref RedisSecurityGroup
       EngineVersion: "7.0"
+      AutoMinorVersionUpgrade: true
+      SnapshotRetentionLimit: !If [IsProdLike, 7, 1]
 
 # =============================================================================
 # DynamoDB Tables — Core Operational Data
@@ -410,8 +658,14 @@ Resources:
 
   CasesTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
+    Metadata:
+      guard:
+        # The sample uses DynamoDB's AWS-owned encryption key. Production is
+        # blocked until adopters decide whether their policy requires a CMK.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-cases-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -451,8 +705,13 @@ Resources:
 
   EvidenceMetadataTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-evidence-metadata-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -473,8 +732,13 @@ Resources:
 
   AuditLogsTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-audit-logs-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -526,8 +790,13 @@ Resources:
 
   BlocklistTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-blocklist-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -548,8 +817,13 @@ Resources:
 
   ConfigTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-config-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -572,6 +846,11 @@ Resources:
 
   ReviewQueueTable:
     Type: AWS::DynamoDB::Table
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-review-queue-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -609,6 +888,11 @@ Resources:
 
   MetricsTable:
     Type: AWS::DynamoDB::Table
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-metrics-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -630,6 +914,11 @@ Resources:
 
   ReviewerStateTable:
     Type: AWS::DynamoDB::Table
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-reviewer-state-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -651,6 +940,11 @@ Resources:
 
   AnomalyScoresTable:
     Type: AWS::DynamoDB::Table
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-anomaly-scores-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -668,8 +962,13 @@ Resources:
 
   AppealsTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-appeals-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -697,6 +996,11 @@ Resources:
 
   WebSocketConnectionsTable:
     Type: AWS::DynamoDB::Table
+    Metadata:
+      guard:
+        # See the documented production KMS decision in docs/deployment.md.
+        SuppressedRules:
+          - DYNAMODB_TABLE_ENCRYPTED_KMS
     Properties:
       TableName: !Sub "tg-websocket-connections-${Environment}"
       BillingMode: PAY_PER_REQUEST
@@ -716,12 +1020,84 @@ Resources:
 # S3 Buckets
 # =============================================================================
 
+  AccessLogsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
+    Metadata:
+      guard:
+        # A logging destination cannot log to itself.
+        SuppressedRules:
+          - S3_BUCKET_LOGGING_ENABLED
+    Properties:
+      BucketName: !Sub "tg-access-logs-${Environment}-${AWS::Region}-${AWS::AccountId}"
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireAccessLogs
+            Status: Enabled
+            ExpirationInDays: 90
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  AccessLogsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Metadata:
+      guard:
+        # The registry rule requires Resource "*"; these equivalent statements
+        # intentionally scope the deny to this bucket and its objects.
+        SuppressedRules:
+          - S3_BUCKET_SSL_REQUESTS_ONLY
+    Properties:
+      Bucket: !Ref AccessLogsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt AccessLogsBucket.Arn
+              - !Sub "${AccessLogsBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Sid: AllowS3ServerAccessLogs
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${AccessLogsBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:s3:::tg-*-${Environment}-${AWS::Region}-${AWS::AccountId}"
+
   EvidenceStoreBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DependsOn: AccessLogsBucketPolicy
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
     Properties:
-      BucketName: !Sub "tg-evidence-store-${Environment}-${AWS::AccountId}"
+      BucketName: !Sub "tg-evidence-store-${Environment}-${AWS::Region}-${AWS::AccountId}"
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogsBucket
+        LogFilePrefix: !Sub "${Environment}/evidence/"
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -734,12 +1110,40 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
+  EvidenceStoreBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Metadata:
+      guard:
+        # The registry rule requires Resource "*"; these equivalent statements
+        # intentionally scope the deny to this bucket and its objects.
+        SuppressedRules:
+          - S3_BUCKET_SSL_REQUESTS_ONLY
+    Properties:
+      Bucket: !Ref EvidenceStoreBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt EvidenceStoreBucket.Arn
+              - !Sub "${EvidenceStoreBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
   AuditArchiveBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DependsOn: AccessLogsBucketPolicy
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
     Properties:
-      BucketName: !Sub "tg-audit-archive-${Environment}-${AWS::AccountId}"
+      BucketName: !Sub "tg-audit-archive-${Environment}-${AWS::Region}-${AWS::AccountId}"
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogsBucket
+        LogFilePrefix: !Sub "${Environment}/audit/"
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -760,10 +1164,40 @@ Resources:
                 TransitionInDays: 365
             ExpirationInDays: 2920
 
+  AuditArchiveBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Metadata:
+      guard:
+        # The registry rule requires Resource "*"; these equivalent statements
+        # intentionally scope the deny to this bucket and its objects.
+        SuppressedRules:
+          - S3_BUCKET_SSL_REQUESTS_ONLY
+    Properties:
+      Bucket: !Ref AuditArchiveBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt AuditArchiveBucket.Arn
+              - !Sub "${AuditArchiveBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
   ConfigBackupsBucket:
     Type: AWS::S3::Bucket
+    DependsOn: AccessLogsBucketPolicy
+    DeletionPolicy: !If [IsProd, Retain, Delete]
+    UpdateReplacePolicy: !If [IsProd, Retain, Delete]
     Properties:
-      BucketName: !Sub "tg-config-backups-${Environment}-${AWS::AccountId}"
+      BucketName: !Sub "tg-config-backups-${Environment}-${AWS::Region}-${AWS::AccountId}"
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogsBucket
+        LogFilePrefix: !Sub "${Environment}/config/"
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -776,10 +1210,40 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
+  ConfigBackupsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Metadata:
+      guard:
+        # The registry rule requires Resource "*"; these equivalent statements
+        # intentionally scope the deny to this bucket and its objects.
+        SuppressedRules:
+          - S3_BUCKET_SSL_REQUESTS_ONLY
+    Properties:
+      Bucket: !Ref ConfigBackupsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt ConfigBackupsBucket.Arn
+              - !Sub "${ConfigBackupsBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
   FrontendBucket:
     Type: AWS::S3::Bucket
+    DependsOn: AccessLogsBucketPolicy
     Properties:
-      BucketName: !Sub "tg-frontend-${Environment}-${AWS::AccountId}"
+      BucketName: !Sub "tg-frontend-${Environment}-${AWS::Region}-${AWS::AccountId}"
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogsBucket
+        LogFilePrefix: !Sub "${Environment}/frontend/"
+      VersioningConfiguration:
+        Status: Enabled
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -792,11 +1256,27 @@ Resources:
 
   FrontendBucketPolicy:
     Type: AWS::S3::BucketPolicy
+    Metadata:
+      guard:
+        # The registry rule requires Resource "*"; these equivalent statements
+        # intentionally scope the deny to this bucket and its objects.
+        SuppressedRules:
+          - S3_BUCKET_SSL_REQUESTS_ONLY
     Properties:
       Bucket: !Ref FrontendBucket
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt FrontendBucket.Arn
+              - !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
           - Sid: AllowCloudFrontServicePrincipal
             Effect: Allow
             Principal:
@@ -815,10 +1295,69 @@ Resources:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
       OriginAccessControlConfig:
-        Name: !Sub "${AWS::StackName}-frontend-oac"
+        Name: !Sub "safetyagent-oac-${Environment}-${AWS::Region}-${AWS::AccountId}"
         OriginAccessControlOriginType: s3
         SigningBehavior: always
         SigningProtocol: sigv4
+
+  FrontendSpaRewriteFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "safetyagent-spa-${Environment}-${AWS::Region}-${AWS::AccountId}"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Rewrite client-side routes to index.html
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          var lastSegment = uri.substring(uri.lastIndexOf('/') + 1);
+
+          if (uri.charAt(uri.length - 1) === '/' || lastSegment.indexOf('.') === -1) {
+            request.uri = '/index.html';
+          }
+
+          return request;
+        }
+
+  FrontendSecurityHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "safetyagent-headers-${Environment}-${AWS::Region}-${AWS::AccountId}"
+        Comment: Security headers for the SafetyAgent dashboard and API proxy
+        SecurityHeadersConfig:
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: !Sub >-
+              default-src 'self'; base-uri 'self'; object-src 'none';
+              frame-ancestors 'none'; form-action 'self';
+              connect-src 'self' wss://*.execute-api.${AWS::Region}.${AWS::URLSuffix};
+              img-src 'self' data:; font-src 'self' data:;
+              script-src 'self'; style-src 'self' 'unsafe-inline'
+            Override: true
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: same-origin
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 63072000
+            IncludeSubdomains: true
+            Preload: true
+            Override: true
+          XSSProtection:
+            Protection: true
+            ModeBlock: true
+            Override: true
+        CustomHeadersConfig:
+          Items:
+            - Header: Permissions-Policy
+              Value: camera=(), microphone=(), geolocation=()
+              Override: true
 
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
@@ -847,27 +1386,23 @@ Resources:
           TargetOriginId: S3FrontendOrigin
           ViewerProtocolPolicy: redirect-to-https
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: !Ref FrontendSecurityHeadersPolicy
           Compress: true
           AllowedMethods: [GET, HEAD, OPTIONS]
           CachedMethods: [GET, HEAD]
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt FrontendSpaRewriteFunction.FunctionARN
         CacheBehaviors:
           - PathPattern: /api/*
             TargetOriginId: ApiGatewayOrigin
             ViewerProtocolPolicy: https-only
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
             OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            ResponseHeadersPolicyId: !Ref FrontendSecurityHeadersPolicy
             AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
             CachedMethods: [GET, HEAD]
             Compress: true
-        CustomErrorResponses:
-          - ErrorCode: 403
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 0
-          - ErrorCode: 404
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 0
 
 # =============================================================================
 # Kinesis Stream
@@ -877,7 +1412,7 @@ Resources:
     Type: AWS::Kinesis::Stream
     Properties:
       Name: !Sub "tg-behavioral-events-${Environment}"
-      ShardCount: !If [IsProd, 4, 1]
+      ShardCount: !If [IsProdLike, 4, 1]
       RetentionPeriodHours: 24
       StreamEncryption:
         EncryptionType: KMS
@@ -1061,7 +1596,6 @@ Resources:
   SafetyAgentBasePolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub "tg-base-policy-${Environment}"
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -1076,11 +1610,20 @@ Resources:
               - xray:PutTraceSegments
               - xray:PutTelemetryRecords
             Resource: "*"
+
+  SafetyAgentVpcPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: EnableRedis
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
           - Effect: Allow
             Action:
               - ec2:CreateNetworkInterface
-              - ec2:DescribeNetworkInterfaces
               - ec2:DeleteNetworkInterface
+              - ec2:DescribeNetworkInterfaces
+              - ec2:DetachNetworkInterface
             Resource: "*"
 
 # =============================================================================
@@ -1102,9 +1645,13 @@ Resources:
         - !Ref "AWS::NoValue"
       Environment:
         Variables:
-          PLATFORM_USER_API_URL: !Ref PlatformUserApiUrl
+          PLATFORM_USER_API_URL: !If
+            - IsProdTest
+            - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
+            - !Ref PlatformUserApiUrl
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref AnomalyScoresTable
         - DynamoDBReadPolicy:
@@ -1133,6 +1680,7 @@ Resources:
         - !Ref "AWS::NoValue"
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBReadPolicy:
             TableName: !Ref CasesTable
         - DynamoDBReadPolicy:
@@ -1167,9 +1715,13 @@ Resources:
         - !Ref "AWS::NoValue"
       Environment:
         Variables:
-          PLATFORM_USER_API_URL: !Ref PlatformUserApiUrl
+          PLATFORM_USER_API_URL: !If
+            - IsProdTest
+            - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
+            - !Ref PlatformUserApiUrl
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref CasesTable
         - DynamoDBCrudPolicy:
@@ -1243,14 +1795,23 @@ Resources:
         - !Ref "AWS::NoValue"
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref ReviewQueueTable
         - DynamoDBCrudPolicy:
             TableName: !Ref CasesTable
         - DynamoDBCrudPolicy:
             TableName: !Ref AuditLogsTable
-        - S3ReadPolicy:
-            BucketName: !Ref EvidenceStoreBucket
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub "${EvidenceStoreBucket.Arn}/*"
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+              Resource: !GetAtt EvidenceStoreBucket.Arn
         - SQSSendMessagePolicy:
             QueueName: !GetAtt NotificationQueue.QueueName
       Events:
@@ -1276,7 +1837,10 @@ Resources:
       Timeout: 15
       Environment:
         Variables:
-          PARTNER_NETWORK_INTEL_API_URL: !Ref PartnerIntelApiUrl
+          PARTNER_NETWORK_INTEL_API_URL: !If
+            - IsProdTest
+            - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/partner"
+            - !Ref PartnerIntelApiUrl
       Policies:
         - !Ref SafetyAgentBasePolicy
         - DynamoDBCrudPolicy:
@@ -1311,12 +1875,15 @@ Resources:
         - !Ref "AWS::NoValue"
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBReadPolicy:
             TableName: !Ref MetricsTable
         - DynamoDBReadPolicy:
             TableName: !Ref CasesTable
         - DynamoDBReadPolicy:
             TableName: !Ref ReviewQueueTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref AuditLogsTable
       Events:
         RealtimeMetrics:
           Type: Api
@@ -1384,10 +1951,14 @@ Resources:
         - !Ref "AWS::NoValue"
       Environment:
         Variables:
-          PLATFORM_USER_API_URL: !Ref PlatformUserApiUrl
+          PLATFORM_USER_API_URL: !If
+            - IsProdTest
+            - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
+            - !Ref PlatformUserApiUrl
           BEDROCK_MODEL_ID: !Ref BedrockModelId
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBReadPolicy:
             TableName: !Ref CasesTable
       Events:
@@ -1546,8 +2117,12 @@ Resources:
         - SecurityGroupIds: [!Ref LambdaSecurityGroup]
           SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
         - !Ref "AWS::NoValue"
+      Environment:
+        Variables:
+          INVESTIGATION_STATE_MACHINE_ARN: !Ref InvestigationStateMachine
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref AnomalyScoresTable
         - DynamoDBCrudPolicy:
@@ -1572,6 +2147,8 @@ Resources:
             MaximumBatchingWindowInSeconds: 5
             BisectBatchOnFunctionError: true
             MaximumRetryAttempts: 3
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
 
   ProfileProcessorFunction:
     Type: AWS::Serverless::Function
@@ -1587,9 +2164,13 @@ Resources:
         - !Ref "AWS::NoValue"
       Environment:
         Variables:
-          PLATFORM_USER_API_URL: !Ref PlatformUserApiUrl
+          PLATFORM_USER_API_URL: !If
+            - IsProdTest
+            - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
+            - !Ref PlatformUserApiUrl
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBReadPolicy:
             TableName: !Ref BlocklistTable
         - DynamoDBCrudPolicy:
@@ -1610,8 +2191,12 @@ Resources:
         - SecurityGroupIds: [!Ref LambdaSecurityGroup]
           SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
         - !Ref "AWS::NoValue"
+      Environment:
+        Variables:
+          BULK_ACTION_STATE_MACHINE_ARN: !Ref BulkActionStateMachine
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBReadPolicy:
             TableName: !Ref MetricsTable
         - DynamoDBCrudPolicy:
@@ -1632,25 +2217,22 @@ Resources:
       Timeout: 30
       Environment:
         Variables:
-          PLATFORM_USER_API_URL: !Ref PlatformUserApiUrl
+          PLATFORM_USER_API_URL: !If
+            - IsProdTest
+            - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
+            - !Ref PlatformUserApiUrl
       Policies:
         - !Ref SafetyAgentBasePolicy
         - DynamoDBCrudPolicy:
             TableName: !Ref AuditLogsTable
-        - DynamoDBReadPolicy:
-            TableName: !Ref ConfigTable
-        - Statement:
-            - Effect: Allow
-              Action:
-                - ses:SendEmail
-                - ses:SendRawEmail
-              Resource: "*"
       Events:
         NotificationQueue:
           Type: SQS
           Properties:
             Queue: !GetAtt NotificationQueue.Arn
             BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
 
 # =============================================================================
 # Lambda Functions — Step Function Tasks
@@ -1671,16 +2253,23 @@ Resources:
         - !Ref "AWS::NoValue"
       Environment:
         Variables:
-          PLATFORM_USER_API_URL: !Ref PlatformUserApiUrl
-          PLATFORM_MESSAGING_API_URL: !Ref PlatformMessagingApiUrl
+          PLATFORM_USER_API_URL: !If
+            - IsProdTest
+            - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
+            - !Ref PlatformUserApiUrl
+          PLATFORM_MESSAGING_API_URL: !If
+            - IsProdTest
+            - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/messages"
+            - !Ref PlatformMessagingApiUrl
           BEDROCK_MODEL_ID: !Ref BedrockModelId
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref EvidenceMetadataTable
         - DynamoDBReadPolicy:
             TableName: !Ref BlocklistTable
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref CasesTable
         - S3CrudPolicy:
             BucketName: !Ref EvidenceStoreBucket
@@ -1688,7 +2277,9 @@ Resources:
             - Effect: Allow
               Action:
                 - bedrock:InvokeModel
-              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+              Resource:
+                - !Sub "arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
+                - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
 
   ConfidenceCalculatorFunction:
     Type: AWS::Serverless::Function
@@ -1728,9 +2319,13 @@ Resources:
         - !Ref "AWS::NoValue"
       Environment:
         Variables:
-          PLATFORM_USER_API_URL: !Ref PlatformUserApiUrl
+          PLATFORM_USER_API_URL: !If
+            - IsProdTest
+            - !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock/users"
+            - !Ref PlatformUserApiUrl
       Policies:
         - !Ref SafetyAgentBasePolicy
+        - !If [EnableRedis, !Ref SafetyAgentVpcPolicy, !Ref "AWS::NoValue"]
         - DynamoDBCrudPolicy:
             TableName: !Ref CasesTable
         - DynamoDBCrudPolicy:
@@ -1755,6 +2350,8 @@ Resources:
             TableName: !Ref ReviewQueueTable
         - DynamoDBCrudPolicy:
             TableName: !Ref CasesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditLogsTable
         - DynamoDBReadPolicy:
             TableName: !Ref ConfigTable
 
@@ -1837,6 +2434,11 @@ Resources:
 # =============================================================================
 
 Outputs:
+  ProdTestMockApiUrl:
+    Condition: IsProdTest
+    Description: Temporary upstream mock used only by the prodtest rehearsal
+    Value: !Sub "https://${ProdTestMockApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mock"
+
   RestApiUrl:
     Description: SafetyAgent REST API URL
     Value: !Sub "https://${SafetyAgentApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
@@ -1868,6 +2470,14 @@ Outputs:
   AuditBucketName:
     Description: Audit archive S3 bucket
     Value: !Ref AuditArchiveBucket
+
+  ConfigBackupsBucketName:
+    Description: Configuration backups S3 bucket
+    Value: !Ref ConfigBackupsBucket
+
+  AccessLogsBucketName:
+    Description: S3 server access logs bucket
+    Value: !Ref AccessLogsBucket
 
   CloudFrontDomainName:
     Description: CloudFront distribution domain name

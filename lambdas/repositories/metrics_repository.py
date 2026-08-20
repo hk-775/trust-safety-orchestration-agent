@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from boto3.dynamodb.conditions import Key
 
-from .base import get_table
+from .base import get_table, to_dynamodb_types
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def record_metric(metric_name: str, value: float, dimensions: dict | None = None
         "ttl": ttl,
     }
     if dimensions:
-        item["dimensions"] = dimensions
+        item["dimensions"] = to_dynamodb_types(dimensions)
     _table().put_item(Item=item)
 
 

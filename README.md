@@ -1,233 +1,249 @@
 # Trust & Safety Orchestration Agent
 
-An autonomous Trust & Safety system that uses multi-agent orchestration on AWS to detect, investigate, and resolve policy violations at scale. The system combines event-driven processing, parallel evidence gathering, confidence-scored decision making, and automated enforcement to handle content moderation and safety enforcement with human-in-the-loop escalation for sensitive cases.
+An event-driven AWS sample for detecting, investigating, and resolving policy
+violations with automated enforcement and human review.
+
+> [!IMPORTANT]
+> This is reference/sample code, not a production-ready moderation system.
+> Do not process real user data with it. Direct `prod` deployment is disabled
+> until the security gaps in [the deployment runbook](docs/deployment.md#production-release-gaps)
+> are resolved.
 
 ## Architecture
 
-![Architecture](docs/architecture.drawio)
+[Open the editable architecture diagram](docs/architecture.drawio).
 
-The system follows an event-driven pipeline: **Detection > Investigation > Decision > Enforcement**.
+The processing flow is **Detection > Investigation > Decision > Enforcement**:
 
-1. Behavioral events stream in via Kinesis and are scored for anomalies
-2. When thresholds are exceeded, a Step Functions investigation workflow runs evidence gathering in parallel
-3. A confidence calculator scores violations; the policy engine routes to autonomous enforcement or human review
-4. Enforcement actions execute automatically for high-confidence cases, with full audit trails
+1. Kinesis events are scored for anomalous behavior.
+2. Step Functions coordinates evidence gathering and policy evaluation.
+3. High-confidence cases are enforced automatically; sensitive or uncertain
+   cases enter a review queue.
+4. DynamoDB and S3 preserve operational state, evidence, and audit records.
+5. CloudFront serves the React dashboard and proxies REST requests; the
+   dashboard connects directly to the WebSocket API.
 
-## AWS Services Used
-
-| Service | Purpose |
-|---------|---------|
-| AWS Lambda | Event processing, API handlers, business logic (Python 3.11, arm64) |
-| AWS Step Functions | Investigation and bulk action workflow orchestration |
-| Amazon DynamoDB | Operational data storage (cases, evidence metadata, audit logs, config) |
-| Amazon S3 | Evidence storage, audit archives, configuration backups |
-| Amazon ElastiCache (Redis) | Rate limiting, caching, session management |
-| Amazon API Gateway | REST API + WebSocket for real-time dashboard updates |
-| Amazon Kinesis | Behavioral event streaming |
-| Amazon CloudWatch | Monitoring dashboards, alarms, and metrics |
+The stack uses Lambda, API Gateway, Step Functions, DynamoDB, S3, Cognito,
+Kinesis, SQS, SNS, EventBridge, CloudFront, and optional ElastiCache Redis.
 
 ## Prerequisites
 
-- [AWS CLI](https://aws.amazon.com/cli/) v2 (configured with credentials)
-- [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html) v1.90+
-- [uv](https://docs.astral.sh/uv/) (auto-installed by `setup.sh` if missing)
-- Node.js 20+ and npm (for frontend)
-- An AWS account with appropriate permissions
+- AWS CLI v2 with active credentials
+- AWS SAM CLI
+- `uv`
+- Node.js `20.19+`, `22.12+`, or a newer major release; Node 22 is recommended
+- npm
 
-> **Note:** `uv` manages Python versions and dependencies automatically. You don't need to install Python separately — `uv` handles it.
-
-## Quick Start
-
-### Try the UI instantly (no AWS account needed)
+Install dependencies and validate both build artifacts:
 
 ```bash
-git clone https://github.com/aws-samples/trust-safety-orchestration-agent.git
-cd trust-safety-orchestration-agent/frontend
-npm install && npm run dev
-```
-
-Open http://localhost:5173 — the dashboard runs in **demo mode** with mock data. No backend, no deploy, no AWS credentials required.
-
-### Deploy to AWS
-
-> [!IMPORTANT]
-> Choose **ONE** of the two options below — either the one-command deploy OR the step-by-step guide. Do not run both.
-
-#### Option A: One command
-
-```bash
+git clone https://github.com/hk-775/trust-safety-orchestration-agent.git
 cd trust-safety-orchestration-agent
-make quickstart
-```
-
-This installs deps, builds, deploys a lightweight stack (no VPC/Redis), seeds demo data, and starts the frontend locally connected to your live backend.
-
-> [!TIP]
-> To deploy the frontend to CloudFront (instead of running locally), follow [Step 5: Deploy the frontend to S3 + CloudFront](#step-5-deploy-the-frontend-to-s3--cloudfront) below.
-
-#### Option B: Step by step
-
-If `make quickstart` fails or you prefer to run each step manually, follow these in order from the project root:
-
-##### Step 1: Install dependencies and build
-
-```bash
 ./setup.sh
 ```
 
-##### Step 2: Deploy the backend
+## Local Demo
 
-For dev/demo (no VPC/Redis, faster deploy):
-
-```bash
-sam deploy --guided --parameter-overrides "UseRedis=false Environment=dev"
-```
-
-For production (includes VPC, Redis, security groups):
-
-```bash
-sam deploy --guided
-```
-
-When prompted, set `Environment` to `prod`, `UseRedis` to `true`, and configure your platform API URLs.
-
-> **Note:** Save the outputs printed at the end of the deploy — you'll need `RestApiUrl`, `WebSocketUrl`, `FrontendBucketName`, and `CloudFrontDistributionId`.
-
-##### Step 3: Seed demo data
-
-> **⚠️ Run from the project root. Use the same `--env` value you deployed with (e.g., `dev` or `prod`).**
-
-```bash
-uv run python scripts/seed_demo_data.py --env dev --region us-east-1
-```
-
-##### Step 4: Run the frontend locally (optional)
+The frontend uses mock data when `frontend/.env.local` is absent:
 
 ```bash
 cd frontend
-npm install && npm run dev
+npm ci
+npm run dev
 ```
 
-Open http://localhost:3000 — it runs in demo mode with mock data by default.
+Open `http://localhost:3000`.
 
-##### Step 5: Deploy the frontend to S3 + CloudFront
+## Deployment Profiles
 
-From the project root:
+| Profile | Redis/VPC | Network egress | Data deletion |
+| --- | --- | --- | --- |
+| `dev` | Disabled by default | Lambda public service networking | Deleted with stack |
+| `staging` | Configurable | One shared NAT when Redis is enabled | Deleted with stack |
+| `prodtest` | Required | One NAT gateway per Availability Zone | Deleted with stack |
+| `prod` | Required | One NAT gateway per Availability Zone | Core data retained |
+
+When Redis is disabled, Redis-dependent features are disabled and the health
+endpoint reports Redis as `disabled`. When Redis is enabled, VPC-attached
+functions use S3/DynamoDB gateway endpoints and NAT for AWS and external APIs.
+
+### Seeded Development Deployment
+
+> [!WARNING]
+> Deployment creates billable AWS resources. Review the template and your AWS
+> budget first, and run the documented teardown when testing is complete.
 
 ```bash
-cd frontend
-cp .env.example .env.production
+read -r -s -p "Demo admin password: " DEMO_ADMIN_PASSWORD
+printf '\n'
+export DEMO_ADMIN_PASSWORD
+make quickstart
+unset DEMO_ADMIN_PASSWORD
 ```
 
-Edit `.env.production` and set the values from your SAM deploy outputs:
+This installs dependencies, deploys `trust-safety-orch-dev` without Redis,
+checks `/api/v1/health`, creates the demo Cognito user and data, builds the
+frontend, uploads it to S3, invalidates CloudFront, and prints the live URL.
 
-```
-VITE_API_BASE_URL=https://<your-api-id>.execute-api.<region>.amazonaws.com/<env>
-VITE_WS_URL=wss://<your-ws-id>.execute-api.<region>.amazonaws.com/<env>
-```
-
-Build and upload:
+### Standard Deployments
 
 ```bash
-npm run build
-aws s3 sync dist/ s3://<your-frontend-bucket>/ --delete
-aws cloudfront create-invalidation --distribution-id <your-distribution-id> --paths "/*"
+# Lightweight dev
+make deploy-lite
+
+# Staging, backend and frontend
+make deploy \
+  ENVIRONMENT=staging \
+  STACK_NAME=trust-safety-orch-staging \
+  USE_REDIS=false
+
+# Backend only
+make deploy-backend \
+  ENVIRONMENT=staging \
+  STACK_NAME=trust-safety-orch-staging
 ```
 
-Your app is now live at `https://<your-cloudfront-domain>`.
+The deployment writes `frontend/.env.local` from CloudFormation outputs, so
+`make dev` connects to the deployed backend rather than mock data.
 
-**Estimated production costs** (moderate traffic, ~1M events/day):
-- ElastiCache Redis (cache.t3.medium): ~$50/month
-- DynamoDB (on-demand): ~$25-75/month
-- Lambda: ~$10-30/month
-- API Gateway: ~$5-15/month
-- Kinesis (1 shard): ~$15/month
-- Other (S3, CloudWatch, SQS): ~$10/month
-- **Total: ~$115-195/month**
+### Production Rehearsal
 
-## Makefile Commands
+The public deployment path intentionally supports `dev`, `staging`, and
+`prodtest`, but not `prod`. The template also requires
+`AcknowledgeIncompleteProduction=true` for a direct production deployment.
+That acknowledgement is not a substitute for implementing the documented
+authentication, authorization, logging, encryption, schema-validation, and
+cost controls.
+
+For a deletion-safe production-topology rehearsal, deploy `prodtest`. It uses
+the production Redis, dual-NAT, logging, and stream sizing while keeping
+stateful resources removable. An in-stack API Gateway mock replaces the three
+external platform integrations, so only an enabled Bedrock model is required:
+
+> [!WARNING]
+> `prodtest` creates two NAT gateways, a Redis node, and a four-shard Kinesis
+> stream. These resources incur charges until the stack is deleted.
 
 ```bash
-make help          # Show all available commands
-make setup         # Install all dependencies
-make build         # Build SAM application
-make deploy        # Deploy (guided)
-make deploy-quick  # Deploy (no prompts)
-make dev           # Start frontend dev server
-make test          # Run backend tests
-make seed          # Seed demo data
-make clean         # Remove build artifacts
-make destroy       # Delete the deployed stack
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6 \
+  make deploy-prodtest CONFIRM_PRODUCTION_DEPLOY=true
 ```
 
-## Manual Deployment
+See [Deployment and Production Rehearsal](docs/deployment.md) for the external
+API contracts, Cognito user bootstrap, validation checklist, reliability
+behavior, production release gaps, and teardown details.
 
-### Backend
+## Frontend Configuration
+
+For direct API Gateway access, the REST URL must include `/api/v1`:
+
+```dotenv
+VITE_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/<env>/api/v1
+VITE_WS_URL=wss://<api-id>.execute-api.<region>.amazonaws.com/<env>
+```
+
+The hosted build uses `/api/v1` as a same-origin CloudFront path and the direct
+WebSocket endpoint for real-time updates.
+
+## GitHub Deployment
+
+`.github/workflows/deploy.yml` provides a manual OIDC-based deployment.
+Create protected GitHub environments named `dev`, `staging`, and `prodtest`,
+then configure:
+
+- Environment variable `AWS_DEPLOY_ROLE_ARN`
+- Environment variable `AWS_ACCOUNT_ID`
+- Environment variable `BEDROCK_MODEL_ID` for `prodtest`
+- Optional environment variable `ALLOWED_CORS_ORIGIN` for direct browser access
+- Optional non-production secret `DEMO_ADMIN_PASSWORD`
+
+The IAM role must trust GitHub's OIDC provider only when the token audience is
+`sts.amazonaws.com` and the token subject exactly identifies this repository
+and the selected environment, for example
+`repo:hk-775/trust-safety-orchestration-agent:environment:prodtest`. Do not use
+an organization-wide or repository-wide wildcard subject. Restrict each
+environment to the `main` branch, add required reviewers to `prodtest`, and
+grant the deployment role only the permissions required by the reviewed SAM
+change set. The workflow refuses deployment runs from other branches.
+
+CI runs Python lint/tests, SAM validation/build, frontend tests, and the
+production frontend build using Node 22.
+
+## Operations
 
 ```bash
-sam build --parallel
-sam deploy --guided    # First time (interactive)
-sam deploy             # Subsequent deploys
+make test
+make lint
+make audit
+make build
+make frontend-build
+make seed ENVIRONMENT=dev STACK_NAME=trust-safety-orch-dev
+make simulate ENVIRONMENT=dev AWS_REGION=us-east-1
 ```
 
-### Frontend
+Delete a non-production stack and empty all managed buckets first:
 
 ```bash
-cd frontend
-npm install
-cp .env.example .env.local
-# Set VITE_API_URL and VITE_WS_URL from SAM deploy outputs
-npm run build          # Production build
-npm run dev            # Local development
+make destroy ENVIRONMENT=dev STACK_NAME=trust-safety-orch-dev
+
+make destroy \
+  ENVIRONMENT=prodtest \
+  STACK_NAME=trust-safety-orch-prodtest
 ```
+
+The teardown utility retains production data if a downstream fork has created
+a production stack with its own reviewed deployment process.
 
 ## Project Structure
 
+```text
+template.yaml                 SAM infrastructure
+samconfig.toml                Safe default SAM configuration
+statemachines/                Step Functions definitions
+lambdas/handlers/             API handlers
+lambdas/processors/           Stream and event processors
+lambdas/services/             Business logic
+lambdas/repositories/         Persistence adapters
+lambdas/tests/                Backend tests
+frontend/                     React and Vite dashboard
+scripts/deploy.sh             Repeatable backend/frontend deployment
+scripts/delete_stack.py       Bucket-aware stack teardown
+scripts/seed_demo_data.py     Non-production demo seeding
+scripts/live_simulator.py     Non-production activity simulator
+docs/deployment.md            Deployment, validation, and teardown runbook
+docs/open-source-publication.md Final repository publication checklist
+SECURITY.md                   Private vulnerability reporting process
+SUPPORT.md                    Community support expectations
 ```
-template.yaml                  # SAM infrastructure-as-code (all AWS resources)
-samconfig.toml                 # SAM deployment configuration
-statemachines/
-  investigation_workflow.asl.json   # Investigation orchestration (ASL)
-  bulk_action_workflow.asl.json     # Bulk action orchestration (ASL)
-lambdas/
-  handlers/                    # API Gateway Lambda handlers
-  processors/                  # Event-driven processors (Kinesis, EventBridge, SQS)
-  services/                    # Business logic layer
-  repositories/                # Data access layer (DynamoDB, S3, Redis)
-  tests/                       # Unit, integration, and performance tests
-frontend/
-  src/                         # React + TypeScript SPA dashboard
-docs/                          # Architecture diagram and design docs
-scripts/                       # Deployment and utility scripts
-docs/                          # Design documents and architecture diagrams
-```
-
-## Cost Estimate
-
-This sample uses serverless and on-demand services, so costs scale with usage. For a development/test workload with minimal traffic, expect approximately:
-
-- **Lambda**: Included in free tier for low volumes
-- **DynamoDB**: On-demand pricing, minimal cost at low scale
-- **ElastiCache Redis**: Starts at ~$0.017/hr for cache.t3.micro
-- **API Gateway**: $1.00 per million REST API calls
-- **Step Functions**: $0.025 per 1,000 state transitions
-- **S3/Kinesis/CloudWatch**: Minimal at low volumes
-
-**Important**: Review the [AWS Pricing](https://aws.amazon.com/pricing/) page and use the [AWS Pricing Calculator](https://calculator.aws/) to estimate costs for your expected workload. Remember to delete resources when no longer needed.
 
 ## Security
 
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+- REST API routes use Cognito authorization except explicitly public auth,
+  health, and metrics routes. Reassess those public telemetry routes before
+  production use.
+- The browser sample stores only the Cognito ID token in `sessionStorage`; it
+  does not return or persist Cognito access or refresh tokens.
+- WebSocket routes are currently unauthenticated; production must add an
+  authorizer before release.
+- External integration URLs are required to use HTTPS and path/query values
+  are encoded before requests are sent.
+- CloudFront adds CSP, HSTS, clickjacking, MIME-sniffing, referrer, and browser
+  permissions headers.
+- S3 public access is blocked and CloudFront uses origin access control.
+- S3 server access logs are retained in a dedicated private bucket for 90 days.
+- DynamoDB and S3 encrypt data at rest.
+- Lambda tracing is enabled and IAM policies are scoped by workload.
+- Production core data uses retention policies.
+- Audit logging is part of enforcement workflows.
 
-This sample includes several security best practices:
-
-- All Lambda functions use least-privilege IAM policies
-- DynamoDB tables use encryption at rest
-- S3 buckets enforce encryption and block public access
-- API endpoints require authentication (JWT)
-- Audit logs are immutable — enforcement halts if audit logging fails
-- Sensitive cases (self-harm, child safety) always escalate to human review
+See [SECURITY.md](SECURITY.md) for private vulnerability reporting and
+[SUPPORT.md](SUPPORT.md) for support expectations.
 
 ## License
 
-This library is licensed under the MIT-0 License. See the [LICENSE](LICENSE) file.
+This project is licensed under the MIT-0 License. See [LICENSE](LICENSE).
+
+This repository is derived from the public
+[`aws-samples/sample-trust-safety-orchestration-agent`](https://github.com/aws-samples/sample-trust-safety-orchestration-agent)
+sample. The bundled narration assets are unchanged from that MIT-0-licensed
+upstream source.

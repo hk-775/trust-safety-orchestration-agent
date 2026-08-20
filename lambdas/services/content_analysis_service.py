@@ -6,7 +6,7 @@ import boto3
 
 logger = logging.getLogger(__name__)
 
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "")
 
 SCAM_PATTERNS = [
     "send money", "wire transfer", "western union", "gift card",
@@ -29,6 +29,10 @@ CRISIS_KEYWORDS = [
 
 
 def _invoke_bedrock(prompt: str) -> dict:
+    if not BEDROCK_MODEL_ID:
+        logger.warning("BEDROCK_MODEL_ID is not configured; using deterministic analysis only")
+        return {}
+
     client = boto3.client("bedrock-runtime")
     body = json.dumps({
         "anthropic_version": "bedrock-2023-05-31",
@@ -44,7 +48,10 @@ def _invoke_bedrock(prompt: str) -> dict:
         result = json.loads(response["body"].read())
         return result
     except Exception as e:
-        logger.error("Bedrock invocation failed", extra={"error": str(e)})
+        logger.error(
+            "Bedrock invocation failed",
+            extra={"error_type": type(e).__name__},
+        )
         return {}
 
 

@@ -93,7 +93,10 @@ def escalate_case(
                 evidence, primary_type, limit=5
             )
         except Exception as e:
-            logger.warning("Precedent matching failed", extra={"error": str(e)})
+            logger.warning(
+                "Precedent matching failed",
+                extra={"error_type": type(e).__name__},
+            )
 
     estimated_minutes = REVIEW_TIME_ESTIMATES.get(priority, 5)
 
@@ -103,6 +106,7 @@ def escalate_case(
         escalation_reason=reason,
         estimated_review_minutes=estimated_minutes,
         similar_case_ids=[p.get("case_id", "") for p in precedents],
+        dedupe_key=f"escalation:{case_id}:{reason}",
     )
 
     case_repository.update_case_status(case_id, "escalated")

@@ -1,6 +1,7 @@
 import json
 import logging
 
+from handlers.http_response import response_headers
 from services import metrics_aggregation_service
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,7 @@ def _handle_prometheus_metrics():
 
     return {
         "statusCode": 200,
-        "headers": {"Content-Type": "text/plain", "Access-Control-Allow-Origin": "*"},
+        "headers": response_headers("text/plain"),
         "body": text_body,
     }
 
@@ -78,12 +79,16 @@ def _handle_recent_actions():
     from repositories import audit_repository
 
     logs = audit_repository.query_by_event_type("enforcement", limit=20)
-    return _response(200, {"recent_actions": logs})
+    recent_actions = [
+        {**log, "log_id": log.get("log_id") or log.get("audit_id", "")}
+        for log in logs
+    ]
+    return _response(200, {"recent_actions": recent_actions})
 
 
 def _response(status_code, body):
     return {
         "statusCode": status_code,
-        "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
+        "headers": response_headers(),
         "body": json.dumps(body, default=str),
     }

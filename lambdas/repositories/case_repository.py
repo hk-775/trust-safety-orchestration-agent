@@ -5,7 +5,7 @@ from typing import Optional
 import ulid
 from boto3.dynamodb.conditions import Key
 
-from .base import get_table
+from .base import get_table, to_dynamodb_types
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def update_case(case_id: str, **updates) -> None:
         val_alias = f":v{i}"
         expr_parts.append(f"{alias} = {val_alias}")
         names[alias] = k
-        values[val_alias] = v
+        values[val_alias] = to_dynamodb_types(v)
     _table().update_item(
         Key={"case_id": case_id},
         UpdateExpression="SET " + ", ".join(expr_parts),

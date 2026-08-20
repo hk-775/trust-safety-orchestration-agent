@@ -1,6 +1,6 @@
 import hashlib
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from services import intelligence_service as svc
 
@@ -109,3 +109,34 @@ class TestValidateNoPii:
         import pytest
         with pytest.raises(ValueError, match="Potential PII"):
             svc._validate_no_pii(payload)
+
+
+class TestPublishBadActor:
+    @patch("urllib.request.urlopen")
+    @patch("repositories.audit_repository.write_log")
+    @patch(
+        "services.intelligence_service.PARTNER_NETWORK_INTEL_API_URL",
+        "https://intel.partner.test/v1",
+    )
+    def test_publish_uses_https_integration_url(self, mock_audit, mock_urlopen):
+        response = MagicMock()
+        response.read.return_value = b'{"accepted": true}'
+        response.__enter__.return_value = response
+        mock_urlopen.return_value = response
+
+        result = svc.publish_bad_actor("user-1", "fingerprint", "signature", "scam")
+
+        request = mock_urlopen.call_args.args[0]
+        assert request.full_url == "https://intel.partner.test/v1/intelligence/ingest"
+        assert result["published"] is True
+        mock_audit.assert_called_once()
+
+    @patch(
+        "services.intelligence_service.PARTNER_NETWORK_INTEL_API_URL",
+        "http://intel.partner.test/v1",
+    )
+    def test_publish_rejects_non_https_url(self):
+        result = svc.publish_bad_actor("user-1", "fingerprint", "signature", "scam")
+
+        assert result["published"] is False
+        assert "must be HTTPS" in result["reason"]

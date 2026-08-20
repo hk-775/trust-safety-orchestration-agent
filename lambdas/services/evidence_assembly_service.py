@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from repositories import evidence_repository, blocklist_repository
 from services import content_analysis_service, image_analysis_service
+from services.http_client import build_https_url
 
 logger = logging.getLogger(__name__)
 
@@ -14,23 +15,28 @@ PLATFORM_USER_API_URL = os.environ.get("PLATFORM_USER_API_URL", "")
 PLATFORM_MESSAGING_API_URL = os.environ.get("PLATFORM_MESSAGING_API_URL", "")
 
 
-def _call_platform_api(url: str, params: dict | None = None) -> dict:
+def _call_platform_api(
+    base_url: str,
+    *path_segments: str,
+    params: dict[str, str] | None = None,
+) -> dict:
     import urllib.request
-    full_url = url
-    if params:
-        qs = "&".join(f"{k}={v}" for k, v in params.items())
-        full_url = f"{url}?{qs}"
+    full_url = build_https_url(base_url, *path_segments, query=params)
     try:
         req = urllib.request.Request(full_url, headers={"X-Api-Key": os.environ.get("PLATFORM_API_KEY", "")})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        # build_https_url rejects non-HTTPS schemes before this request.
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
             return json.loads(resp.read())
     except Exception as e:
-        logger.warning("Platform API call failed", extra={"url": url, "error": str(e)})
+        logger.warning(
+            "Platform API call failed",
+            extra={"error_type": type(e).__name__},
+        )
         return {}
 
 
 def gather_profile_metadata(user_id: str) -> dict:
-    data = _call_platform_api(f"{PLATFORM_USER_API_URL}/{user_id}")
+    data = _call_platform_api(PLATFORM_USER_API_URL, user_id)
     return {
         "user_id": user_id,
         "created_at": data.get("created_at", ""),
@@ -43,8 +49,10 @@ def gather_profile_metadata(user_id: str) -> dict:
 
 def gather_message_history(user_id: str, days: int = 30) -> dict:
     data = _call_platform_api(
-        f"{PLATFORM_MESSAGING_API_URL}/{user_id}/messages",
-        {"days": str(days)},
+        PLATFORM_MESSAGING_API_URL,
+        user_id,
+        "messages",
+        params={"days": str(days)},
     )
     messages = data.get("messages", [])
     return {
@@ -56,7 +64,7 @@ def gather_message_history(user_id: str, days: int = 30) -> dict:
 
 
 def gather_previous_reports(user_id: str) -> list[dict]:
-    data = _call_platform_api(f"{PLATFORM_USER_API_URL}/{user_id}/reports")
+    data = _call_platform_api(PLATFORM_USER_API_URL, user_id, "reports")
     return data.get("reports", [])
 
 
@@ -83,7 +91,10 @@ def assemble_evidence_package(case_id: str, user_id: str) -> dict:
             try:
                 results[name] = future.result()
             except Exception as e:
-                logger.error(f"Evidence source failed: {name}", extra={"error": str(e)})
+                logger.error(
+                    f"Evidence source failed: {name}",
+                    extra={"error_type": type(e).__name__},
+                )
                 results[name] = None
                 package["unavailable_sources"].append(name)
 
@@ -97,7 +108,10 @@ def assemble_evidence_package(case_id: str, user_id: str) -> dict:
         try:
             package["message_analysis"] = content_analysis_service.analyze_messages(messages)
         except Exception as e:
-            logger.error("Message analysis failed", extra={"error": str(e)})
+            logger.error(
+                "Message analysis failed",
+                extra={"error_type": type(e).__name__},
+            )
             package["message_analysis"] = {}
             package["unavailable_sources"].append("message_analysis")
     else:
@@ -109,7 +123,10 @@ def assemble_evidence_package(case_id: str, user_id: str) -> dict:
         try:
             package["image_analysis"] = image_analysis_service.analyze_profile_images(photo_urls)
         except Exception as e:
-            logger.error("Image analysis failed", extra={"error": str(e)})
+            logger.error(
+                "Image analysis failed",
+                extra={"error_type": type(e).__name__},
+            )
             package["image_analysis"] = {}
             package["unavailable_sources"].append("image_analysis")
     else:

@@ -39,7 +39,7 @@ def _reverse_image_search(image_url: str) -> list[dict]:
     to find matching images across the web. Returns list of matches with
     source URLs and similarity scores.
     """
-    logger.debug("Reverse image search", extra={"url": image_url})
+    logger.debug("Reverse image search adapter invoked")
     return []
 
 
@@ -50,7 +50,7 @@ def _check_ai_generated(image_url: str) -> float | None:
     or a custom model trained on GAN artifacts. Returns confidence score
     (0.0 = real, 1.0 = AI-generated).
     """
-    logger.debug("AI face detection check", extra={"url": image_url})
+    logger.debug("AI face detection adapter invoked")
     return 0.0
 
 
@@ -60,5 +60,5 @@ def _check_stock_photo(image_url: str) -> dict | None:
     Integrate with: Shutterstock API, Getty Images API, or a pre-built
     hash database of common stock photos. Returns match metadata if found.
     """
-    logger.debug("Stock photo check", extra={"url": image_url})
+    logger.debug("Stock photo adapter invoked")
     return None

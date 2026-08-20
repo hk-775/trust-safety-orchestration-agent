@@ -55,7 +55,6 @@ def apply_rate_limit(user_id: str, limit_type: str, max_per_hour: int = 10) -> d
     logger.info(
         "Rate limit applied",
         extra={
-            "user_id": user_id,
             "limit_type": limit_type,
             "current_count": current_count,
             "max_per_hour": max_per_hour,
@@ -96,7 +95,6 @@ def apply_ip_range_limit(ip_range: str, limit_type: str, max_per_hour: int = 10)
     logger.info(
         "IP range rate limit applied",
         extra={
-            "ip_range": ip_range,
             "limit_type": limit_type,
             "current_count": current_count,
             "max_per_hour": max_per_hour,
@@ -134,7 +132,6 @@ def check_rate_limit(user_id: str, limit_type: str) -> dict:
     logger.info(
         "Rate limit checked",
         extra={
-            "user_id": user_id,
             "limit_type": limit_type,
             "current_count": current_count,
             "is_limited": is_limited,
@@ -162,7 +159,6 @@ def remove_rate_limit(user_id: str, limit_type: str) -> bool:
     logger.info(
         "Rate limit removed",
         extra={
-            "user_id": user_id,
             "limit_type": limit_type,
             "was_deleted": was_deleted,
         },

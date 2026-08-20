@@ -1,4 +1,5 @@
 import logging
+from hashlib import sha256
 from datetime import datetime, timezone
 
 import ulid
@@ -19,8 +20,14 @@ def add_to_queue(
     escalation_reason: str,
     estimated_review_minutes: int = 5,
     similar_case_ids: list[str] | None = None,
+    dedupe_key: str | None = None,
 ) -> str:
-    queue_id = f"Q-{ulid.new().str}"
+    if dedupe_key:
+        digest = sha256(dedupe_key.encode("utf-8")).hexdigest()[:26].upper()
+        queue_id = f"Q-{digest}"
+    else:
+        queue_id = f"Q-{ulid.new().str}"
+
     now = datetime.now(timezone.utc).isoformat()
     item = {
         "queue_id": queue_id,
@@ -32,7 +39,23 @@ def add_to_queue(
         "estimated_review_minutes": estimated_review_minutes,
         "similar_case_ids": similar_case_ids or [],
     }
-    _table().put_item(Item=item)
+
+    table = _table()
+    if dedupe_key:
+        try:
+            table.put_item(
+                Item=item,
+                ConditionExpression=Attr("queue_id").not_exists(),
+            )
+        except table.meta.client.exceptions.ConditionalCheckFailedException:
+            logger.info(
+                "Review queue item already exists",
+                extra={"queue_id": queue_id, "case_id": case_id},
+            )
+            return queue_id
+    else:
+        table.put_item(Item=item)
+
     logger.info("Case added to review queue", extra={"queue_id": queue_id, "priority": priority})
     return queue_id
 

@@ -1,4 +1,3 @@
-import json
 import logging
 
 from repositories import case_repository, audit_repository, metrics_repository
@@ -8,8 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 def lambda_handler(event, context):
-    logger.info("Profile processor invoked", extra={"event": json.dumps(event)[:500]})
-
     detail = event.get("detail", {})
     user_id = detail["user_id"]
     device_fingerprint = detail["device_fingerprint"]
@@ -20,7 +17,7 @@ def lambda_handler(event, context):
     if match and match.get("confidence", 0) >= 0.95:
         logger.info(
             "High-confidence blocklist match, executing permanent ban",
-            extra={"user_id": user_id, "confidence": match["confidence"]},
+            extra={"confidence": match["confidence"]},
         )
 
         enforcement_engine_service.execute_action(
@@ -43,7 +40,7 @@ def lambda_handler(event, context):
     elif match and match.get("confidence", 0) >= 0.80:
         logger.info(
             "Medium-confidence blocklist match, creating case for investigation",
-            extra={"user_id": user_id, "confidence": match["confidence"]},
+            extra={"confidence": match["confidence"]},
         )
 
         case = case_repository.create_case(
@@ -64,7 +61,7 @@ def lambda_handler(event, context):
         )
 
     else:
-        logger.info("No blocklist match for new profile", extra={"user_id": user_id})
+        logger.info("No blocklist match for new profile")
         metrics_repository.record_metric("profile_creations", 1)
 
     return None

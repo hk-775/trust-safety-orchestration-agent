@@ -1,4 +1,6 @@
 import os
+from decimal import Decimal
+
 import boto3
 from functools import lru_cache
 
@@ -20,3 +22,16 @@ def get_table(env_var: str):
 
 def get_bucket_name(env_var: str) -> str:
     return os.environ[env_var]
+
+
+def to_dynamodb_types(value):
+    """Recursively convert Python floats into DynamoDB-compatible decimals."""
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {key: to_dynamodb_types(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_dynamodb_types(item) for item in value]
+    if isinstance(value, set):
+        return {to_dynamodb_types(item) for item in value}
+    return value

@@ -3,11 +3,10 @@ import io
 import json
 import logging
 from datetime import datetime, timezone
-
 import ulid
 from boto3.dynamodb.conditions import Key
 
-from .base import get_table, get_s3_client, get_bucket_name
+from .base import get_table, get_s3_client, get_bucket_name, to_dynamodb_types
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +57,7 @@ def write_log(
     }
     for k, v in optional_fields.items():
         if v is not None:
-            item[k] = v
+            item[k] = to_dynamodb_types(v)
 
     _table().put_item(Item=item)
     logger.info("Audit log written", extra={"audit_id": audit_id, "event_type": event_type})

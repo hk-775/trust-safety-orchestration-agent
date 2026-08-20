@@ -1,4 +1,3 @@
-import json
 import logging
 
 from services import enforcement_engine_service
@@ -7,8 +6,6 @@ logger = logging.getLogger(__name__)
 
 
 def lambda_handler(event, context):
-    logger.info("Enforcement executor invoked", extra={"event": json.dumps(event)[:500]})
-
     case_id = event["case_id"]
     user_id = event["user_id"]
     action = event["action"]
@@ -20,7 +17,6 @@ def lambda_handler(event, context):
         "Executing enforcement action",
         extra={
             "case_id": case_id,
-            "user_id": user_id,
             "action": action,
             "violation_type": violation_type,
             "confidence_score": confidence_score,

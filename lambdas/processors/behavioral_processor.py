@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import boto3
 
 from repositories import base, case_repository, audit_repository, metrics_repository
+from repositories.base import to_dynamodb_types
 from services import anomaly_detection_service
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,10 @@ def lambda_handler(event, context):
         except Exception as e:
             logger.error(
                 "Failed to process behavioral record",
-                extra={"error": str(e), "kinesis_sequence": record.get("kinesis", {}).get("sequenceNumber")},
+                extra={
+                    "error_type": type(e).__name__,
+                    "kinesis_sequence": record.get("kinesis", {}).get("sequenceNumber"),
+                },
             )
             batch_item_failures.append({
                 "itemIdentifier": record["kinesis"]["sequenceNumber"],
@@ -69,7 +73,6 @@ def _process_record(record):
         logger.info(
             "Investigation triggered",
             extra={
-                "user_id": user_id,
                 "case_id": case["case_id"],
                 "anomaly_score": anomaly_result["anomaly_score"],
             },
@@ -86,22 +89,19 @@ def _process_record(record):
 
         logger.info(
             "Enhanced monitoring triggered",
-            extra={
-                "user_id": user_id,
-                "anomaly_score": anomaly_result["anomaly_score"],
-            },
+            extra={"anomaly_score": anomaly_result["anomaly_score"]},
         )
 
 
 def _update_anomaly_scores(user_id, anomaly_result):
     table = base.get_dynamodb_resource().Table(ANOMALY_SCORES_TABLE)
-    table.put_item(Item={
+    table.put_item(Item=to_dynamodb_types({
         "user_id": user_id,
-        "anomaly_score": json.loads(json.dumps(anomaly_result["anomaly_score"]), parse_float=lambda x: x),
+        "anomaly_score": anomaly_result["anomaly_score"],
         "account_tier": anomaly_result["account_tier"],
         "factors": anomaly_result["factors"],
         "updated_at": datetime.now(timezone.utc).isoformat(),
-    })
+    }))
 
 
 def _start_investigation(case_id, user_id):

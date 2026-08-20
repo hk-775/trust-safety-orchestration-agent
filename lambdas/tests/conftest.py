@@ -26,7 +26,7 @@ os.environ.setdefault("INVESTIGATION_STATE_MACHINE_ARN", "arn:aws:states:us-west
 os.environ.setdefault("BULK_ACTION_STATE_MACHINE_ARN", "arn:aws:states:us-west-2:123456789:stateMachine:test-bulk")
 os.environ.setdefault("PLATFORM_API_URL", "https://api.platform.test/v1")
 os.environ.setdefault("PARTNER_NETWORK_INTEL_API_URL", "")
-os.environ.setdefault("BEDROCK_MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0")
+os.environ.setdefault("BEDROCK_MODEL_ID", "test-model")
 os.environ.setdefault("WEBSOCKET_API_ENDPOINT", "https://ws.test.execute-api.us-west-2.amazonaws.com/prod")
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("AWS_DEFAULT_REGION", "us-west-2")
