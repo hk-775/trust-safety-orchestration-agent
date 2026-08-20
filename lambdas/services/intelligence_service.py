@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from repositories import blocklist_repository, audit_repository
 from services.http_client import build_https_url
+from services.integration_auth import get_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,10 @@ def publish_bad_actor(
         req = urllib.request.Request(
             build_https_url(PARTNER_NETWORK_INTEL_API_URL, "intelligence", "ingest"),
             data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                **get_auth_headers("partner_intel"),
+            },
         )
         # build_https_url rejects non-HTTPS schemes before this request.
         with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310

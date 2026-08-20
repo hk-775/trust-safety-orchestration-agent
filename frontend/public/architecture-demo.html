@@ -688,8 +688,8 @@ const nodeInfo = {
     title: 'Partner Network Intelligence API',
     service: 'External HTTPS API',
     agent: false,
-    desc: 'Cross-platform intelligence sharing through a configured HTTPS endpoint. The sample sends privacy-safe identifiers, but does not implement partner authentication.',
-    why: 'Production requirement: Add platform-approved authentication, authorization, data minimization, and partner trust controls before connecting a real endpoint.'
+    desc: 'Cross-platform intelligence sharing through a configured HTTPS endpoint. The sample sends privacy-safe identifiers and resolves partner API credentials from AWS Secrets Manager.',
+    why: 'Production requirement: Review the configured authentication mode, authorization, data minimization, and partner trust controls before connecting a real endpoint.'
   },
   'stepfunctions': {
     title: 'AWS Step Functions — Investigation Workflow',
@@ -807,7 +807,7 @@ const nodeInfo = {
     title: 'Amazon API Gateway (REST)',
     service: 'API Gateway',
     agent: false,
-    desc: 'REST API serving the ops dashboard. Protected routes use a Cognito authorizer; login, health, and metrics routes are public in the sample. Application roles are not enforced.',
+    desc: 'REST API serving the ops dashboard. Protected routes, including operational metrics and WebSocket ticket issuance, use Cognito; login and aggregate health remain public. Application roles are not enforced.',
     why: 'Why API Gateway: Managed API routing, Cognito integration, CORS controls, and X-Ray tracing. Production deployments still need application authorization, request validation, and edge protection.'
   },
   'cognito': {

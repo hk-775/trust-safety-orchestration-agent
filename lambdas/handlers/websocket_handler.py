@@ -36,9 +36,10 @@ def lambda_handler(event, context):
 
 def _handle_connect(event):
     connection_id = event["requestContext"]["connectionId"]
-    # Extract user_id from query string or authorizer if available
-    query_params = event.get("queryStringParameters") or {}
-    user_id = query_params.get("user_id", "anonymous")
+    authorizer = event["requestContext"].get("authorizer") or {}
+    user_id = authorizer.get("user_id")
+    if not user_id:
+        return {"statusCode": 401}
 
     websocket_repository.save_connection(connection_id, user_id)
 
@@ -55,8 +56,9 @@ def _handle_disconnect(event):
 def _handle_default(event):
     body = json.loads(event.get("body") or "{}")
 
-    if body.get("action") == "broadcast_metrics":
-        return _handle_broadcast()
+    if body.get("action") == "ping":
+        connection_id = event["requestContext"]["connectionId"]
+        websocket_repository.update_last_ping(connection_id)
 
     return {"statusCode": 200}
 
@@ -89,7 +91,10 @@ def _handle_broadcast():
         except Exception as e:
             logger.warning(
                 "Failed to post to connection",
-                extra={"connection_id": connection_id, "error": str(e)},
+                extra={
+                    "connection_id": connection_id,
+                    "error_type": type(e).__name__,
+                },
             )
 
     return {"statusCode": 200}

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from repositories import evidence_repository, blocklist_repository
 from services import content_analysis_service, image_analysis_service
 from services.http_client import build_https_url
+from services.integration_auth import get_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,10 @@ def _call_platform_api(
     import urllib.request
     full_url = build_https_url(base_url, *path_segments, query=params)
     try:
-        req = urllib.request.Request(full_url, headers={"X-Api-Key": os.environ.get("PLATFORM_API_KEY", "")})
+        req = urllib.request.Request(
+            full_url,
+            headers=get_auth_headers("platform"),
+        )
         # build_https_url rejects non-HTTPS schemes before this request.
         with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
             return json.loads(resp.read())

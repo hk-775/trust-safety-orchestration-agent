@@ -3,17 +3,17 @@
 This runbook covers repeatable deployments, the deletion-safe `prodtest`
 rehearsal, production integration requirements, validation, and teardown.
 
-Direct production deployment is intentionally disabled in `scripts/deploy.sh`
-and the public GitHub workflow. The SAM template additionally requires
-`AcknowledgeIncompleteProduction=true` if a downstream fork deploys `prod`
-directly. Do not enable it until every item under
-[Production Release Gaps](#production-release-gaps) is resolved and reviewed.
+Production deployment is guarded by explicit confirmation, required
+production topology, non-placeholder integration URLs, secret-backed
+integration authentication, and an explicit Bedrock model. Complete
+[Production Deployment Checklist](#production-deployment-checklist) before
+using the `prod` profile.
 
 ## Public Repository Deployment Controls
 
 The deployment workflow is manual, uses GitHub OIDC instead of stored AWS
 access keys, and runs only from the `main` branch. Configure separate protected
-GitHub environments for `dev`, `staging`, and `prodtest`.
+GitHub environments for `dev`, `staging`, `prodtest`, and `prod`.
 
 For every AWS deployment role:
 
@@ -25,7 +25,7 @@ For every AWS deployment role:
 - Scope the role permissions to the resources and operations required by the
   reviewed SAM deployment process; do not attach administrator access.
 - Restrict the matching GitHub environment to `main`. Require independent
-  approval for `prodtest` and prevent self-approval where the GitHub plan
+  approval for `prodtest` and `prod`, and prevent self-approval where the GitHub plan
   supports it.
 
 Environment variables and secrets must be configured on the environment, not
@@ -61,6 +61,11 @@ Redis and needs direct access to the API Gateway Management API to call
 `post_to_connection`. Its role can read metrics, cases, and the review queue,
 manage connection records, and call `execute-api:ManageConnections`.
 
+The dashboard obtains a single-use WebSocket ticket from the
+Cognito-protected `/api/v1/auth/websocket-ticket` route. The ticket expires
+after 60 seconds and is atomically deleted by the `$connect` Lambda authorizer.
+The browser never places its Cognito token in the WebSocket URL.
+
 ## External Integration Contracts
 
 Actual production requires three non-placeholder HTTPS base URLs:
@@ -71,11 +76,22 @@ Actual production requires three non-placeholder HTTPS base URLs:
 | `PLATFORM_MESSAGING_API_URL` | `GET /{userId}/messages?days=30` |
 | `PARTNER_INTEL_API_URL` | `POST /intelligence/ingest` |
 
-The user, messaging, and notification clients send an `X-Api-Key` header from
-`PLATFORM_API_KEY`. The SAM template does not currently provision that value.
-The partner intelligence publisher does not currently attach authentication.
-Wire both integrations to an approved secret and authentication mechanism
-before an actual production release.
+Each integration supports `api-key` or `bearer` authentication:
+
+| Variable | Purpose |
+| --- | --- |
+| `PLATFORM_AUTH_MODE` | Authentication for user, messaging, enforcement, and notification calls |
+| `PLATFORM_AUTH_SECRET_ARN` | Exact Secrets Manager ARN containing the platform credential as `SecretString` |
+| `PLATFORM_AUTH_KMS_KEY_ARN` | Optional customer-managed KMS key ARN for the platform secret |
+| `PARTNER_INTEL_AUTH_MODE` | Authentication for intelligence publishing |
+| `PARTNER_INTEL_AUTH_SECRET_ARN` | Exact Secrets Manager ARN containing the partner credential as `SecretString` |
+| `PARTNER_INTEL_AUTH_KMS_KEY_ARN` | Optional customer-managed KMS key ARN for the partner secret |
+
+Both mode variables accept `api-key` or `bearer`. The template does not create
+credential values. Provision and rotate the secrets through your approved
+process, then provide only their ARNs. Lambda execution roles receive
+`secretsmanager:GetSecretValue` only for their specific integration secret.
+Warm functions refresh cached credentials after five minutes.
 
 The runtime URL builder rejects non-HTTPS schemes, URL credentials, query
 strings, and fragments in configured base URLs. User identifiers and query
@@ -140,6 +156,34 @@ The deployment script:
 
 Prodtest does not seed demo data or create a Cognito user.
 
+## Deploy Production
+
+Production creates retained data resources and billable dual-NAT, Redis, and
+Kinesis capacity. Use a protected `prod` GitHub environment with independent
+approval, or provide the required values locally without putting credential
+values in source control or shell history. The reserved example hostnames
+below are deliberately rejected by the deployment script; replace them with
+reviewed production endpoints:
+
+```bash
+export PLATFORM_USER_API_URL=https://users.example.org/v1
+export PLATFORM_MESSAGING_API_URL=https://messages.example.org/v1
+export PARTNER_INTEL_API_URL=https://intel.example.org/v1
+export PLATFORM_AUTH_MODE=api-key
+export PLATFORM_AUTH_SECRET_ARN=arn:aws:secretsmanager:REGION:ACCOUNT:secret:platform
+export PARTNER_INTEL_AUTH_MODE=bearer
+export PARTNER_INTEL_AUTH_SECRET_ARN=arn:aws:secretsmanager:REGION:ACCOUNT:secret:partner
+# Set the matching *_KMS_KEY_ARN variables only for customer-managed keys.
+export BEDROCK_MODEL_ID=your-enabled-model-or-inference-profile
+
+make deploy-prod \
+  CONFIRM_PRODUCTION_DEPLOY=true \
+  AWS_REGION=us-east-1
+```
+
+Unset the deployment variables when the operation finishes. The secret values
+themselves are resolved only by the authorized Lambda functions at runtime.
+
 ## Create an Operator Login
 
 Create production-like users administratively. Keep passwords out of shell
@@ -190,7 +234,8 @@ Validate the deployed environment, not only the local build:
    healthy; Redis should be healthy when enabled.
 3. Load the frontend, sign in through Cognito, and verify same-origin REST
    requests.
-4. Connect a real WebSocket client and trigger an immediate metrics broadcast.
+4. Request a WebSocket ticket through the authenticated REST API, connect once,
+   and verify that replaying the same ticket is denied.
 5. Hold a connection through an EventBridge schedule boundary and verify the
    scheduled broadcast.
 6. Invoke Bedrock with the configured model or inference profile from the
@@ -234,24 +279,25 @@ backups, and core DynamoDB tables if a downstream fork created a production
 stack. It does not remove CloudWatch log groups or credentials created outside
 CloudFormation. Inventory and handle those resources separately.
 
-## Production Release Gaps
+## Production Deployment Checklist
 
-Do not treat `prodtest` success as production approval. Before deploying
-`prod`, address these known gaps:
+Do not treat `prodtest` success as production approval. The repository
+implements memory-only browser tokens, authenticated metrics, one-time
+WebSocket authorization, minimal production health responses, and
+secret-backed upstream authentication. Before deploying `prod`, complete
+these environment-specific decisions:
 
-- Provision and rotate authentication for all external integrations.
-- Replace the sample's browser `sessionStorage` bearer-token handling with a
-  reviewed production session design and corresponding CSRF/XSS controls.
-- Add authorization to WebSocket `$connect`, `$disconnect`, and `$default`
-  routes; they currently have no API Gateway authorizer.
-- Decide whether health and operational metrics should remain public; protect
-  or minimize them for the production threat model.
-- Enable reviewed API Gateway and CloudFront access logging, request
-  validation, throttling, and edge protection such as AWS WAF.
+- Define and test application role authorization and MFA requirements for your
+  operator, reviewer, and administrator model.
+- Configure API Gateway/CloudFront access logging, throttling, alarms, and edge
+  protection such as AWS WAF according to organizational policy.
 - Decide whether DynamoDB requires customer-managed KMS keys.
 - Validate real upstream response schemas and failure behavior.
 - Confirm the platform notification endpoint handles the `in_app` and `email`
   channel values carried in each queued message.
+- Confirm secret rotation schedules and resource policies. Provide the
+  matching KMS key ARN when an integration secret does not use the AWS managed
+  key.
 - Review NAT gateway, Redis, Kinesis, CloudWatch, and retained-storage costs.
-- Replace the template acknowledgement gate and deployment-script refusal only
-  after an independent security and operational review.
+- Review data retention, privacy, regional residency, incident response, and
+  human-oversight requirements before processing real user data.

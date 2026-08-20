@@ -5,6 +5,7 @@ import urllib.request
 
 from repositories import audit_repository
 from services.http_client import build_https_url
+from services.integration_auth import get_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +95,8 @@ def _deliver_to_platform(message: dict) -> dict:
         "Accept": "application/json",
         "Content-Type": "application/json",
         "Idempotency-Key": str(message["notification_id"]),
+        **get_auth_headers("platform"),
     }
-    api_key = os.environ.get("PLATFORM_API_KEY")
-    if api_key:
-        headers["X-Api-Key"] = api_key
     request = urllib.request.Request(
         url,
         data=json.dumps(message, default=str).encode(),

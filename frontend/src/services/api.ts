@@ -1,4 +1,5 @@
 import { resolveMock } from './mockData'
+import { useAuthStore } from '@/store/authStore'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL
@@ -12,7 +13,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     if (mock !== null) return mock as T
   }
 
-  const token = sessionStorage.getItem('auth_token')
+  const token = useAuthStore.getState().token
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

@@ -9,7 +9,9 @@
 - **AWS Cloud Platform**: System will be deployed on AWS using serverless architecture (Lambda, DynamoDB, S3, API Gateway, Step Functions, SQS, SNS, EventBridge).
 - **Python Backend**: Lambda functions will be implemented in Python 3.11+ for ML/AI capabilities and consistency with data science tooling.
 - **React Frontend**: Dashboard will be a React 18+ TypeScript SPA with TailwindCSS for styling.
-- **Existing Platform APIs**: Integration with existing platform services (User, Messaging, Profile, Reporting) via configured HTTPS endpoints. Authentication is platform-specific and is not implemented by this sample.
+- **Existing Platform APIs**: Integration with existing platform services
+  through configured HTTPS endpoints. API-key and bearer credentials are
+  resolved from exact AWS Secrets Manager ARNs.
 - **Amazon Bedrock**: Optional model-backed sentiment enrichment. Deterministic
   message checks remain available when no model is configured.
 - **Redis ElastiCache**: Optional shared state for distributed rate limits,
@@ -202,10 +204,11 @@ handlers and apply the authentication configured for each API.
 
 **Current Configuration**:
 - REST API with resource-based routing and a default Cognito authorizer.
-- Public REST exceptions for login, health, and metrics.
+- Public REST exceptions for login and health. Production health responses
+  contain only aggregate status.
 - CORS defaults to the local development origin and is configurable per stack.
 - WebSocket API for real-time dashboard updates.
-- No WebSocket authorizer; this is a production release gap.
+- A single-use ticket Lambda authorizer protects WebSocket `$connect`.
 - CloudFront same-origin proxying for `/api/*`.
 
 **Endpoints**:
@@ -220,19 +223,20 @@ handlers and apply the authentication configured for each API.
 | POST | /api/v1/cases/{caseId}/decision | ReviewHandler | Cognito JWT |
 | POST | /api/v1/intelligence/ingest | IntelligenceHandler | Cognito JWT |
 | POST | /api/v1/intelligence/publish | IntelligenceHandler | Cognito JWT |
-| GET | /api/v1/metrics/realtime | MetricsHandler | Public |
+| GET | /api/v1/metrics/realtime | MetricsHandler | Cognito JWT |
 | GET | /api/v1/audit/export | AuditHandler | Cognito JWT |
 | GET | /api/v1/reports/compliance | AuditHandler | Cognito JWT |
 | POST | /api/v1/appeals | AppealHandler | Cognito JWT |
 | POST | /api/v1/crisis/resources | CrisisHandler | Cognito JWT |
 | GET | /api/v1/health | HealthHandler | Public |
-| GET | /api/v1/metrics | MetricsHandler | Public |
+| GET | /api/v1/metrics | MetricsHandler | Cognito JWT |
 | GET | /api/v1/config/current | ConfigHandler | Cognito JWT |
 | POST | /api/v1/config/rollback | ConfigHandler | Cognito JWT |
 | GET | /api/v1/reviewers/{reviewerId}/exposure-metrics | ReviewerHandler | Cognito JWT |
-| $connect | WebSocket stage endpoint | WebSocketHandler | None (production gap) |
-| $disconnect | WebSocket stage endpoint | WebSocketHandler | None |
-| $default | WebSocket stage endpoint | WebSocketHandler | None |
+| POST | /api/v1/auth/websocket-ticket | AuthHandler | Cognito JWT |
+| $connect | WebSocket stage endpoint | WebSocketAuthorizer + WebSocketHandler | Single-use ticket |
+| $disconnect | WebSocket stage endpoint | WebSocketHandler | Established authenticated connection |
+| $default | WebSocket stage endpoint | WebSocketHandler | Established authenticated connection |
 
 The current handlers do not enforce application roles or MFA claims, and the
 template does not configure API Gateway usage-plan throttles. Those controls
@@ -283,7 +287,7 @@ Resources:
   InvestigationStateMachine
   BulkActionStateMachine
   
-  # DynamoDB Tables (11)
+  # DynamoDB Tables (12)
   CasesTable
   EvidenceMetadataTable
   AuditLogsTable
@@ -314,8 +318,8 @@ Resources:
   deletion-safe state and an in-stack upstream mock.
 - `prod`: Redis and dual-NAT required; core data is retained on stack deletion.
 
-The public deployment script and GitHub workflow refuse `prod`. A direct
-template deployment also requires `AcknowledgeIncompleteProduction=true`.
+The deployment script, GitHub workflow, and template allow `prod` only with
+explicit confirmation and required production integration configuration.
 
 The WebSocket handler intentionally runs outside the VPC because it does not
 use Redis and must reach the API Gateway Management API. Redis-dependent
@@ -334,8 +338,9 @@ egress.
 - DynamoDB `tg-config` table for runtime-configurable thresholds and policies.
 - GitHub environment variables/secrets for the optional deployment workflow.
 
-The current template does not provision an external integration API key or
-Secrets Manager resource. That is a production release gap.
+The template accepts exact Secrets Manager ARNs and grants read access only to
+the functions that call each integration. Credential values are resolved at
+runtime and refreshed from Secrets Manager after five minutes.
 
 **Environment Variables per Lambda**:
 ```
@@ -348,11 +353,17 @@ PLATFORM_USER_API_URL=https://users.example.org/v1
 PLATFORM_MESSAGING_API_URL=https://messages.example.org/v1
 BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
 PARTNER_NETWORK_INTEL_API_URL=https://intel.example.org/v1
+PLATFORM_AUTH_MODE=api-key
+PLATFORM_AUTH_SECRET_ARN=arn:aws:secretsmanager:REGION:ACCOUNT:secret:platform
+PLATFORM_AUTH_KMS_KEY_ARN=arn:aws:kms:REGION:ACCOUNT:key/KEY_ID
+PARTNER_INTEL_AUTH_MODE=bearer
+PARTNER_INTEL_AUTH_SECRET_ARN=arn:aws:secretsmanager:REGION:ACCOUNT:secret:partner
+PARTNER_INTEL_AUTH_KMS_KEY_ARN=arn:aws:kms:REGION:ACCOUNT:key/KEY_ID
 ```
 
-Actual production rejects reserved example domains. The values above illustrate
-the expected shape only. External API authentication must be injected from an
-approved secret-management path before production.
+Actual production rejects reserved example domains. The values above
+illustrate the expected shape only; secret values never enter these
+environment variables.
 
 **Satisfies**: AC-10.7, AC-NFR-3.1, AC-NFR-3.2
 
@@ -601,6 +612,8 @@ async def broadcast_metrics_update(metrics: RealtimeMetrics) -> None
 **Deployment note**: This function runs outside the Redis VPC so scheduled and
 manual broadcasts can call the API Gateway Management API. It reads the review
 queue when composing metrics and requires `execute-api:ManageConnections`.
+`$connect` receives the user identity only from the ticket authorizer. Client
+messages may refresh their ping TTL but cannot trigger a metrics broadcast.
 
 **Satisfies**: AC-8.7, AC-8.12
 
@@ -2823,7 +2836,7 @@ sequenceDiagram
     Note over IS,MG: Outbound Intelligence (to partners)
     
     IS->>IS: generate_hashed_identifiers(banned_user)
-    IS->>MG: POST /intelligence/ingest (mutual TLS)
+    IS->>MG: POST /intelligence/ingest (secret-backed API key or bearer token)
     MG-->>IS: 200 OK
     IS->>AS: log_intelligence_publish(destination, hash_count)
 ```
@@ -2845,9 +2858,12 @@ sequenceDiagram
     Note over UI,WSH: Connection Setup
     
     UI->>WSS: connect()
-    WSS->>APIG: $connect (no authorizer)
-    APIG->>WSH: handle_connect(event)
-    WSH->>WCR: save_connection(connection_id, "anonymous")
+    WSS->>APIG: POST /auth/websocket-ticket (Cognito JWT)
+    APIG-->>WSS: Single-use ticket (60-second TTL)
+    WSS->>APIG: $connect?ticket=...
+    APIG->>APIG: Authorizer atomically consumes ticket
+    APIG->>WSH: handle_connect(event, authenticated user)
+    WSH->>WCR: save_connection(connection_id, user_id)
     WCR->>DDB: Insert into tg-websocket-connections
     WSH-->>APIG: 200 OK
     APIG-->>UI: Connected

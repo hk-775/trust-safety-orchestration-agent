@@ -10,7 +10,7 @@ describe('authStore', () => {
     useAuthStore.getState().logout()
   })
 
-  it('persists an authenticated user and clears it on logout', () => {
+  it('keeps authentication in memory and clears it on logout', () => {
     const user = {
       id: 'reviewer-123',
       email: 'reviewer@example.com',
@@ -23,8 +23,8 @@ describe('authStore', () => {
       token: 'test-token',
       user,
     })
-    expect(sessionStorage.getItem('auth_token')).toBe('test-token')
-    expect(JSON.parse(sessionStorage.getItem('auth_user') ?? '{}')).toEqual(user)
+    expect(sessionStorage.getItem('auth_token')).toBeNull()
+    expect(sessionStorage.getItem('auth_user')).toBeNull()
 
     useAuthStore.getState().logout()
 
