@@ -11,6 +11,8 @@ updates:
 
   - package-ecosystem: uv
     directory: /
+    exclude-paths:
+      - lambdas/requirements.txt
     schedule:
       interval: weekly
     cooldown:
