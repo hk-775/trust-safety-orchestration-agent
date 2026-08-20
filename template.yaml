@@ -1511,11 +1511,8 @@ Resources:
       CodeUri: lambdas/
       Handler: handlers.websocket_handler.lambda_handler
       Timeout: 10
-      VpcConfig: !If
-        - EnableRedis
-        - SecurityGroupIds: [!Ref LambdaSecurityGroup]
-          SubnetIds: [!Ref PrivateSubnet1, !Ref PrivateSubnet2]
-        - !Ref "AWS::NoValue"
+      # This function needs public egress for the API Gateway Management API
+      # and does not use Redis, so it intentionally runs outside the VPC.
       Policies:
         - !Ref SafetyAgentBasePolicy
         - DynamoDBCrudPolicy:
@@ -1524,6 +1521,8 @@ Resources:
             TableName: !Ref MetricsTable
         - DynamoDBReadPolicy:
             TableName: !Ref CasesTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ReviewQueueTable
         - Statement:
             - Effect: Allow
               Action:
