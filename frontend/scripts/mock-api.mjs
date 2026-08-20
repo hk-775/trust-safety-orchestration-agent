@@ -12,15 +12,17 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 
 const PORT = 3001
+const RANDOM_RANGE = 0x1_0000_0000
 
 // ---------------------------------------------------------------------------
 //  Helpers
 // ---------------------------------------------------------------------------
 
 const uid = () => crypto.randomUUID().replace(/-/g, '')
-const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
-const rand = (min, max) => +(Math.random() * (max - min) + min).toFixed(3)
-const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min
+const randomUnit = () => crypto.randomInt(RANDOM_RANGE) / RANDOM_RANGE
+const randInt = (min, max) => crypto.randomInt(min, max + 1)
+const pick = (arr) => arr[randInt(0, arr.length - 1)]
+const rand = (min, max) => +(randomUnit() * (max - min) + min).toFixed(3)
 const ago = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString()
 
 // ---------------------------------------------------------------------------
@@ -223,7 +225,7 @@ function buildEvidence(caseId, visibility) {
       content: visibility === 'labels_only' ? '[Content hidden]' : pick(pool),
       sent_at: ago(randInt(1, 480)),
       recipient_id: `user-${uid().slice(0, 8)}`,
-      flagged: Math.random() > 0.5,
+      flagged: randomUnit() > 0.5,
     })
   }
 
@@ -284,22 +286,22 @@ function buildEvidence(caseId, visibility) {
     image_analysis: {
       profile_images: Array.from({ length: randInt(1, 5) }, () => ({
         image_id: `img-${uid().slice(0, 8)}`,
-        is_ai_generated: Math.random() > 0.7,
-        is_stock_photo: Math.random() > 0.75,
+        is_ai_generated: randomUnit() > 0.7,
+        is_stock_photo: randomUnit() > 0.75,
         reverse_search_matches: randInt(0, 8),
       })),
     },
-    cross_platform_intelligence: Math.random() > 0.4
+    cross_platform_intelligence: randomUnit() > 0.4
       ? {
           match_type: pick(['device_fingerprint', 'email_hash', 'phone_hash', 'behavioral_pattern']),
           confidence: rand(0.6, 0.98),
           source_platform: pick(['Tinder', 'Match.com', 'OkCupid', 'Plenty of Fish', 'BLK']),
-          ban_reason: Math.random() > 0.5
+          ban_reason: randomUnit() > 0.5
             ? pick(['Romance scam', 'Harassment', 'Fake profile', 'Underage', 'Bot network'])
             : undefined,
         }
       : undefined,
-    sources_unavailable: Math.random() > 0.8 ? ['payment_history'] : [],
+    sources_unavailable: randomUnit() > 0.8 ? ['payment_history'] : [],
     assembled_at: ago(randInt(1, 30)),
   }
 }
@@ -374,7 +376,7 @@ function getExposure(reviewerId) {
       harmful_exposure_count: randInt(15, 55),
       time_on_sensitive_minutes: randInt(120, 400),
     },
-    exposure_threshold_reached: Math.random() > 0.7,
+    exposure_threshold_reached: randomUnit() > 0.7,
   }
 }
 
