@@ -11,8 +11,21 @@ import type {
 import { CaseStatus, ViolationType, Priority, ContentSeverity } from '@/types'
 
 const RANDOM_RANGE = 0x1_0000_0000
-const randomUnit = (): number => crypto.getRandomValues(new Uint32Array(1))[0] / RANDOM_RANGE
-const randInt = (min: number, max: number) => Math.floor(randomUnit() * (max - min + 1)) + min
+const randomUint32 = (): number => crypto.getRandomValues(new Uint32Array(1))[0]
+const randomUnit = (): number => randomUint32() / RANDOM_RANGE
+const randInt = (min: number, max: number) => {
+  const range = max - min + 1
+  if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || range <= 0 || range > RANDOM_RANGE) {
+    throw new RangeError('Random integer bounds must define a non-empty 32-bit range')
+  }
+
+  const rejectionLimit = RANDOM_RANGE - (RANDOM_RANGE % range)
+  let value = randomUint32()
+  while (value >= rejectionLimit) {
+    value = randomUint32()
+  }
+  return min + (value % range)
+}
 const pick = <T>(arr: T[]): T => arr[randInt(0, arr.length - 1)]
 const rand = (min: number, max: number) => +(randomUnit() * (max - min) + min).toFixed(3)
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
