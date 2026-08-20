@@ -11,6 +11,8 @@ violations with automated enforcement and human review.
 
 ## Architecture
 
+[![SafetyAgent AWS architecture showing authentication, APIs, event processing, orchestration, storage, messaging, and observability](docs/architecture.png)](docs/architecture.drawio)
+
 [Open the editable architecture diagram](docs/architecture.drawio).
 
 The processing flow is **Detection > Investigation > Decision > Enforcement**:
