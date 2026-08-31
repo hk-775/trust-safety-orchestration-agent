@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
+import { IS_PUBLIC_SITE } from '@/lib/publicSite'
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -579,7 +580,7 @@ export function DemoPage() {
   const isLast = step === STEPS.length - 1
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" data-testid="guided-demo">
       {/* Header */}
       <div className="bg-[#1A1A1A]">
         <div className="mx-auto max-w-6xl px-6 py-8">
@@ -629,7 +630,7 @@ export function DemoPage() {
               {isLast && (
                 <div className="mt-6">
                   <Link
-                    to="/"
+                    to={IS_PUBLIC_SITE ? '/app' : '/login'}
                     className="inline-flex items-center gap-2 rounded-lg bg-midnight px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-aubergine"
                   >
                     Launch Dashboard
@@ -676,6 +677,7 @@ export function DemoPage() {
           <button
             onClick={next}
             disabled={isLast}
+            data-testid="demo-next"
             className={`flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors ${
               isLast
                 ? 'cursor-not-allowed text-gray-300'

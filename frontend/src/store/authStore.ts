@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { IS_PUBLIC_SITE } from '@/lib/publicSite'
 
 interface AuthUser {
   id: string
@@ -13,9 +14,19 @@ interface AuthState {
   logout: () => void
 }
 
+const PUBLIC_USER: AuthUser = {
+  id: 'synthetic-reviewer',
+  email: 'synthetic-reviewer@safetyagent.example',
+  role: 'reviewer',
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  token: null,
+  user: IS_PUBLIC_SITE ? PUBLIC_USER : null,
+  token: IS_PUBLIC_SITE ? 'synthetic-public-demo' : null,
   login: (token, user) => set({ token, user }),
-  logout: () => set({ token: null, user: null }),
+  logout: () => set(
+    IS_PUBLIC_SITE
+      ? { token: 'synthetic-public-demo', user: PUBLIC_USER }
+      : { token: null, user: null },
+  ),
 }))

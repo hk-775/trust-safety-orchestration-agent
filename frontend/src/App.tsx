@@ -1,10 +1,19 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import {
+  BrowserRouter,
+  HashRouter,
+  Navigate,
+  Route,
+  Routes,
+} from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { Layout } from '@/components/Layout'
 import { LoginPage } from '@/components/LoginPage'
 import { LoadingSpinner } from '@/components/LoadingSpinner'
+import { LandingPage } from '@/pages/LandingPage'
+import { ArchitecturePage } from '@/pages/ArchitecturePage'
+import { IS_PUBLIC_SITE } from '@/lib/publicSite'
 import type { ReactNode } from 'react'
 
 const DemoPage = lazy(() =>
@@ -52,6 +61,7 @@ function DeferredPage({ children }: { children: ReactNode }) {
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token)
+  if (IS_PUBLIC_SITE) return <>{children}</>
   if (!token) return <Navigate to="/login" replace />
   return <>{children}</>
 }
@@ -128,26 +138,32 @@ function AuthenticatedApp() {
 }
 
 export default function App() {
+  const Router = IS_PUBLIC_SITE ? HashRouter : BrowserRouter
+
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route
-        path="/demo"
-        element={
-          <DeferredPage>
-            <DemoPage />
-          </DeferredPage>
-        }
-      />
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        path="/app/*"
-        element={
-          <ProtectedRoute>
-            <AuthenticatedApp />
-          </ProtectedRoute>
-        }
-      />
-    </Routes>
+    <Router>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/architecture" element={<ArchitecturePage />} />
+        <Route
+          path="/demo"
+          element={
+            <DeferredPage>
+              <DemoPage />
+            </DeferredPage>
+          }
+        />
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/app/*"
+          element={
+            <ProtectedRoute>
+              <AuthenticatedApp />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Router>
   )
 }

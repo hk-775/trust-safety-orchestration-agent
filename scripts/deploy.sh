@@ -55,7 +55,7 @@ case "$ENVIRONMENT" in
         ;;
 esac
 
-for command_name in aws sam curl; do
+for command_name in aws sam curl uv; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "ERROR: Required command not found: ${command_name}" >&2
         exit 1
@@ -78,11 +78,6 @@ if [[ "$DEPLOY_FRONTEND" == "true" ]]; then
         echo "ERROR: Frontend deployment requires Node.js 22.13+ or 24+." >&2
         exit 1
     fi
-fi
-
-if [[ "$SEED_DEMO_DATA" == "true" ]] && ! command -v uv >/dev/null 2>&1; then
-    echo "ERROR: uv is required when SEED_DEMO_DATA=true." >&2
-    exit 1
 fi
 
 if [[ "$SEED_DEMO_DATA" == "true" && -z "${DEMO_ADMIN_PASSWORD:-}" ]]; then
@@ -222,6 +217,10 @@ echo "  Frontend:    ${DEPLOY_FRONTEND}"
 
 aws sts get-caller-identity --region "$AWS_REGION" >/dev/null
 
+echo "Syncing locked Python environment with uv"
+uv sync --locked --quiet
+./scripts/check_lambda_requirements.sh
+
 parameter_overrides=(
     "Environment=${ENVIRONMENT}"
     "UseRedis=${USE_REDIS}"
@@ -329,7 +328,7 @@ if [[ "$health_ready" != "true" ]]; then
 fi
 
 if [[ "$SEED_DEMO_DATA" == "true" ]]; then
-    uv run python scripts/seed_demo_data.py \
+    uv run --locked python scripts/seed_demo_data.py \
         --env "$ENVIRONMENT" \
         --region "$AWS_REGION" \
         --stack-name "$STACK_NAME"

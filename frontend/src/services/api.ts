@@ -1,8 +1,9 @@
 import { resolveMock } from './mockData'
 import { useAuthStore } from '@/store/authStore'
+import { IS_PUBLIC_SITE } from '@/lib/publicSite'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
-const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL
+const DEMO_MODE = IS_PUBLIC_SITE || !import.meta.env.VITE_API_BASE_URL
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const method = options?.method || 'GET'
@@ -11,6 +12,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (DEMO_MODE) {
     const mock = resolveMock(method, path, body)
     if (mock !== null) return mock as T
+  }
+
+  if (IS_PUBLIC_SITE) {
+    throw new ApiError(404, `Synthetic public demo route is not available: ${method} ${path}`)
   }
 
   const token = useAuthStore.getState().token
