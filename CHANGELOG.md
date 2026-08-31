@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+### Changed
+
+- Disabled automated dependency-update pull requests while retaining
+  vulnerability alerts and manual reviewed updates.
+
 ## 1.0.0 - 2026-08-20
 
 ### Added
