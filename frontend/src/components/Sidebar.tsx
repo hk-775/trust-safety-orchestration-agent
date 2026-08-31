@@ -2,6 +2,12 @@ import { NavLink } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { clsx } from 'clsx'
 
+const publicItems = [
+  { to: '/', label: 'One Pager', icon: 'M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5V6.75A3.75 3.75 0 0 0 10.875 3h-4.5A1.875 1.875 0 0 0 4.5 4.875v14.25A1.875 1.875 0 0 0 6.375 21h11.25a1.875 1.875 0 0 0 1.875-1.875v-4.875Z M14.25 3.75V8.25H18.75' },
+  { to: '/architecture', label: 'Architecture', icon: 'M6.75 3v2.25m10.5-2.25v2.25M3 18.75V8.25A2.25 2.25 0 0 1 5.25 6h13.5A2.25 2.25 0 0 1 21 8.25v10.5A2.25 2.25 0 0 1 18.75 21H5.25A2.25 2.25 0 0 1 3 18.75Z M7.5 11.25h9m-9 3h6' },
+  { to: '/demo', label: 'Guided Scenario', icon: 'M5.25 5.653c0-1.427 1.529-2.33 2.779-1.643l11.54 6.347c1.295.712 1.295 2.573 0 3.286L8.03 19.99c-1.25.687-2.779-.217-2.779-1.643V5.653Z' },
+]
+
 const navItems = [
   { to: '/app', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1' },
   { to: '/app/review', label: 'Review Queue', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
@@ -24,6 +30,29 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">
+        {publicItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end
+            className={({ isActive }) =>
+              clsx(
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-white/10 text-white'
+                  : 'text-gray-400 hover:bg-white/5 hover:text-white',
+              )
+            }
+          >
+            <svg className="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
+            </svg>
+            {item.label}
+          </NavLink>
+        ))}
+
+        <div className="my-3 border-t border-white/10" />
+
         {navItems.map((item) => (
           <NavLink
             key={item.to}

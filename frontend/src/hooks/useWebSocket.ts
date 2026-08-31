@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { createWebSocketClient } from '@/services/websocketClient'
 import { useMetricsStore } from '@/store/metricsStore'
+import { IS_PUBLIC_SITE } from '@/lib/publicSite'
 import type { RealtimeMetrics } from '@/types'
 
 export function useWebSocket() {
@@ -8,6 +9,8 @@ export function useWebSocket() {
   const clientRef = useRef<ReturnType<typeof createWebSocketClient> | null>(null)
 
   useEffect(() => {
+    if (IS_PUBLIC_SITE) return
+
     const client = createWebSocketClient((data) => {
       updateFromWebSocket(data as RealtimeMetrics)
     })

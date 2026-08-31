@@ -1,8 +1,8 @@
 """Seed demo data into DynamoDB tables for dashboard demonstration.
 
 Usage:
-    python scripts/seed_demo_data.py
-    python scripts/seed_demo_data.py --env staging --region us-west-2
+    uv run --locked python scripts/seed_demo_data.py
+    uv run --locked python scripts/seed_demo_data.py --env staging --region us-west-2
 """
 
 import argparse

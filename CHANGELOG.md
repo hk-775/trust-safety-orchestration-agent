@@ -4,10 +4,22 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Added
+
+- Canonical project one-pager, narrated architecture route, guided scenario,
+  and synthetic operations dashboard for GitHub Pages.
+- Chrome conformance coverage for Pages base paths, narration, animation,
+  audio startup, dashboard routes, case evidence, mobile layout, and prohibited
+  API or WebSocket traffic.
+- GitHub Pages deployment workflow with uv lock validation and a clean
+  frontend build.
+
 ### Changed
 
 - Disabled automated dependency-update pull requests while retaining
   vulnerability alerts and manual reviewed updates.
+- Deployment now always requires `uv`, runs `uv sync --locked`, and verifies
+  generated Lambda requirements against `uv.lock` before the SAM build.
 
 ## 1.0.0 - 2026-08-20
 

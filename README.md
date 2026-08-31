@@ -3,6 +3,11 @@
 An event-driven AWS sample for detecting, investigating, and resolving policy
 violations with automated enforcement and human review.
 
+[Website](https://hk-775.github.io/trust-safety-orchestration-agent/) ·
+[Architecture explorer](https://hk-775.github.io/trust-safety-orchestration-agent/#/architecture) ·
+[Guided scenario](https://hk-775.github.io/trust-safety-orchestration-agent/#/demo) ·
+[Synthetic dashboard](https://hk-775.github.io/trust-safety-orchestration-agent/#/app)
+
 > [!IMPORTANT]
 > This is reference/sample code, not a production-ready moderation system.
 > Do not process real user data with it until your organization completes the
@@ -27,6 +32,33 @@ The processing flow is **Detection > Investigation > Decision > Enforcement**:
 
 The stack uses Lambda, API Gateway, Step Functions, DynamoDB, S3, Cognito,
 Kinesis, SQS, SNS, EventBridge, CloudFront, and optional ElastiCache Redis.
+
+## Published Project Artifacts
+
+The GitHub Pages site is built from the same React frontend as the deployed
+application. Public mode adds the canonical one-pager and exposes the existing
+architecture walkthrough, guided scenario, and operations routes with
+browser-local synthetic data.
+
+| Route | Artifact |
+| --- | --- |
+| `/` | Project one-pager |
+| `/#/architecture` | Narrated and animated AWS architecture |
+| `/#/demo` | Seven-step illustrative case workflow |
+| `/#/app` | Synthetic operations dashboard |
+
+Public mode does not contact the REST API, exchange authentication tokens, or
+open a WebSocket. The Pages workflow verifies that boundary in Chrome before
+deployment.
+
+Build and test the exact Pages artifact locally:
+
+```bash
+cd frontend
+VITE_PUBLIC_SITE=true VITE_API_BASE_URL= VITE_WS_URL= \
+  npm run build -- --base=/trust-safety-orchestration-agent/
+SAFETYAGENT_E2E_SCREENSHOT_DIR=/tmp/safetyagent-pages npm run test:public
+```
 
 ## Prerequisites
 
@@ -108,6 +140,11 @@ make deploy-backend \
 The deployment writes `frontend/.env.local` from CloudFormation outputs, so
 `make dev` connects to the deployed backend rather than mock data.
 
+Every deployment requires `uv`, synchronizes the committed Python environment
+with `uv sync --locked`, and verifies that `lambdas/requirements.txt` remains
+derived from `uv.lock` before SAM builds the application. npm is used only for
+the React dependency tree and frontend build.
+
 ### Production Rehearsal
 
 The public deployment path supports all four profiles. Both `prodtest` and
@@ -179,6 +216,12 @@ change set. The workflow refuses deployment runs from other branches.
 CI runs Python lint/tests, SAM validation/build, frontend tests, and the
 production frontend build using Node 22.
 
+`.github/workflows/pages.yml` publishes the canonical synthetic project site
+to GitHub Pages. It validates the uv lock, clean-installs the frontend,
+builds with the repository base path, and runs the Chrome public-site test
+before uploading the static artifact. Pages publication creates no AWS
+resources.
+
 ## Operations
 
 ```bash
@@ -216,12 +259,15 @@ lambdas/services/             Business logic
 lambdas/repositories/         Persistence adapters
 lambdas/tests/                Backend tests
 frontend/                     React and Vite dashboard
+frontend/src/pages/           Canonical landing and architecture wrappers
+frontend/scripts/test-public-site.mjs Browser conformance test for Pages
 scripts/deploy.sh             Repeatable backend/frontend deployment
 scripts/delete_stack.py       Bucket-aware stack teardown
 scripts/seed_demo_data.py     Non-production demo seeding
 scripts/live_simulator.py     Non-production activity simulator
 docs/deployment.md            Deployment, validation, and teardown runbook
 docs/open-source-publication.md Final repository publication checklist
+.github/workflows/pages.yml   Canonical GitHub Pages publication
 SECURITY.md                   Private vulnerability reporting process
 SUPPORT.md                    Community support expectations
 ```
