@@ -313,6 +313,24 @@ async function captureScreenshot(cdp, name) {
   await writeFile(join(screenshotDir, name), Buffer.from(result.data, 'base64'))
 }
 
+function waitForProcessExit(process, timeoutMs) {
+  if (process.exitCode !== null || process.signalCode !== null) {
+    return Promise.resolve(true)
+  }
+
+  return new Promise((resolveExit) => {
+    const onExit = () => {
+      clearTimeout(timer)
+      resolveExit(true)
+    }
+    const timer = setTimeout(() => {
+      process.off('exit', onExit)
+      resolveExit(false)
+    }, timeoutMs)
+    process.once('exit', onExit)
+  })
+}
+
 const { server, origin } = await startStaticServer()
 const profileDir = await mkdtemp(join(tmpdir(), 'safetyagent-pages-chrome-'))
 const chromePath = findChrome()
@@ -633,18 +651,18 @@ try {
   throw error
 } finally {
   cdp?.close()
-  chrome.kill('SIGTERM')
-  await new Promise((resolveExit) => {
-    if (chrome.exitCode !== null) {
-      resolveExit()
-      return
-    }
-    const timer = setTimeout(resolveExit, 2_000)
-    chrome.once('exit', () => {
-      clearTimeout(timer)
-      resolveExit()
-    })
-  })
+  if (chrome.exitCode === null && chrome.signalCode === null) {
+    chrome.kill('SIGTERM')
+  }
+  if (!await waitForProcessExit(chrome, 3_000)) {
+    chrome.kill('SIGKILL')
+    await waitForProcessExit(chrome, 3_000)
+  }
   server.close()
-  await rm(profileDir, { recursive: true, force: true })
+  await rm(profileDir, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 100,
+  })
 }
